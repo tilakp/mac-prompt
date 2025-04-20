@@ -23,7 +23,9 @@ Mac Prompt is a modern teleprompter app for macOS, built with SwiftUI. It allows
 - **Space**: Pause/resume scrolling
 
 ## Screenshots
-![Screenshot](mac-prompt/AppIcon.appiconset/icon_128x128.png)
+![Main Window](screenshots/main-window-to-add-text.png)
+
+![Scrolling Teleprompt Window](screenshots/scolling-text-teleprompt-window.png)
 
 ## License
 MIT License
