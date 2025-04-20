@@ -14,12 +14,12 @@ public struct ContentView: View {
     @State public var promptText = "Generative AI is going to reinvent virtually every customer experience we know, and enable altogether new ones about which we’ve only fantasized. The early AI workloads being deployed focus on productivity and cost avoidance (e.g. customer service, business process orchestration, workflow, translation, etc.). This is saving companies a lot of money. Increasingly, you’ll see AI change the norms in coding, search, shopping, personal assistants, primary care, cancer and drug research, biology, robotics, space, financial services, neighborhood networks—everything. Some of these areas are already seeing rapid progress; others are still in their infancy. But, if your customer experiences aren’t planning to leverage these intelligent models, their ability to query giant corpuses of data and quickly find your needle in the haystack, their ability to keep getting smarter with more feedback and data, and their future agentic capabilities, you will not be competitive. How soon? It won’t all happen in a year or two, but, it won’t take ten either. It’s moving faster than almost anything technology has ever seen."
     @State public var bgColor = Color.black
     @State public var textColor = Color.white
-    @State public var scrollSpeed: Double = 50 // points per second
+    @State public var scrollSpeed: Double = 40 // points per second
     @State public var fontSize: CGFloat = 48
     @State public var scrollOffset: CGFloat = 0
     @State public var timer: Timer? = nil
     @State public var availableHeight: CGFloat = 0
-    @State public var lineSpacing: CGFloat = 8
+    @State public var lineSpacing: CGFloat = 12
     @State public var isPlaying: Bool = true
     @State public var textHeight: CGFloat = 0 // Track text height for clamping
     @State public var controlsOnRight: Bool = false // User preference for sidebar position
@@ -45,7 +45,7 @@ public struct ContentView: View {
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
                         Button(action: { saveTextFile() }) {
-                            Image(systemName: "externaldrive")
+                            Text("💾")
                                 .font(.title2)
                                 .help("Save text to file")
                         }
