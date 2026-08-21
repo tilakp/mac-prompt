@@ -180,7 +180,10 @@ struct PillSegmentedControl<Option: Hashable & Identifiable>: View {
                     Text(label(option))
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundColor(option == selection ? theme.text : theme.textFaint)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .padding(.vertical, 6)
+                        .padding(.horizontal, 2)
                         .frame(maxWidth: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)

@@ -39,11 +39,17 @@ Voice tracking does **not** attempt to align the scroll position to the exact wo
 
 ## Screenshots
 
-The screenshots below are from the previous single-window version of the app and are due for an update to reflect the Library/Editor/Prompter/Settings redesign — contributions welcome.
+**Library** — every script in one searchable, folder-organized grid.
 
-![Main Window](screenshots/main-window-to-add-text.png)
+![Library](screenshots/library.png)
 
-![Scrolling Teleprompt Window](screenshots/scolling-text-teleprompt-window.png)
+**Editor** — cue markers, a reading-pace panel, and per-script appearance controls.
+
+![Editor](screenshots/editor.png)
+
+**Prompter** — camera passthrough, recording, and voice tracking behind the scrolling script. (Design concept shown below; camera passthrough is a live feed of you, not a stock image.)
+
+![Prompter concept](screenshots/prompter-concept.png)
 
 ## License
 MIT License
