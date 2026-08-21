@@ -1,0 +1,15 @@
+# Xcode / Swift build artifacts
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+xcuserdata/
+
+# App bundles and packaging output should be built from source, not committed
+mac-prompt.app/
+release/
+
+# macOS
+.DS_Store

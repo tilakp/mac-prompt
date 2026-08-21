@@ -393,6 +393,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Prompt uses your camera to show a live self-view behind your script while you read, and to record your take.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Prompt uses your microphone to record audio with your video, and, if Voice Tracking is enabled, to nudge scroll speed to match your speaking pace.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Prompt uses on-device speech recognition to measure your speaking pace for Voice Tracking, which nudges scroll speed to match how fast you're actually reading.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -430,6 +433,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Prompt uses your camera to show a live self-view behind your script while you read, and to record your take.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Prompt uses your microphone to record audio with your video, and, if Voice Tracking is enabled, to nudge scroll speed to match your speaking pace.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Prompt uses on-device speech recognition to measure your speaking pace for Voice Tracking, which nudges scroll speed to match how fast you're actually reading.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

@@ -1,28 +1,46 @@
-# Mac Prompt
+# Prompt
 
 ![App Icon](mac-prompt/AppIcon.appiconset/icon_128x128.png)
 
-Mac Prompt is a modern teleprompter app for macOS, built with SwiftUI. It allows you to smoothly scroll and control your script text, making it perfect for presentations, content creation, and speeches.
+Prompt is an open-source teleprompter for macOS, built with SwiftUI and SwiftData. It manages a library of scripts across folders, gives each script a rich editing view with pacing cues, and reads them back in an immersive full-screen prompter with optional camera passthrough, recording, and mic-driven voice tracking.
 
 ## Features
-- Smooth, customizable scrolling text
-- Keyboard shortcut (Space) to pause/resume scrolling
-- Adjustable font size, colors, and line spacing
-- Sidebar controls for easy navigation
-- Edit mode for quickly updating your script
+
+- **Library** — every script lives in a searchable, folder-organized grid (with Recent, Favorites, and Trash smart folders), not just one hardcoded block of text
+- **Editor** — syntax-highlighted cue markers (`[PAUSE]`, `[EMPHASIS]`, `»» FASTER`, `«« SLOWER`) and light markdown emphasis, a reading-pace panel that estimates read time from your words-per-minute target, per-script appearance (editor size, line spacing), folder and tag assignment
+- **Prompter** — full-screen scrolling teleprompter with a floating glass control bar: play/pause, speed, font size, mirror flip (for physical beam-splitter rigs), and keyboard shortcuts for everything
+- **Camera passthrough & recording** — an optional live camera background behind the script, with one-click recording saved into the app's own sandboxed storage
+- **Voice tracking** — on-device speech recognition measures your actual speaking pace and gently nudges the scroll speed to match it as you read (see [How voice tracking works](#how-voice-tracking-works) below)
+- **Settings** — a proper multi-tab preferences window: General, Reading & Display, Voice Tracking, Camera & PiP, and Shortcuts
 
 ## Getting Started
+
 1. Clone the repository:
    ```sh
-   git clone https://github.com/yourusername/mac-prompt.git
+   git clone https://github.com/tilakp/mac-prompt.git
    ```
 2. Open `mac-prompt.xcodeproj` in Xcode.
-3. Build and run the app on your Mac.
+3. Build and run the app on your Mac. The first time you open Prompter mode with camera passthrough or voice tracking enabled, macOS will ask for Camera, Microphone, and Speech Recognition permission.
 
-## Keyboard Shortcuts
-- **Space**: Pause/resume scrolling
+## How voice tracking works
+
+Voice tracking does **not** attempt to align the scroll position to the exact word you're speaking — that's a much harder, research-grade alignment problem. Instead, it runs live on-device speech recognition, measures your actual words-per-minute since the current recognition session started, and smoothly nudges the scroll speed toward that measured rate. Sensitivity (Low/Balanced/High) in Settings controls how quickly it reacts.
+
+## Keyboard Shortcuts (Prompter mode)
+
+| Action | Key |
+| --- | --- |
+| Play / Pause | Space |
+| Speed up | ↑ |
+| Speed down | ↓ |
+| Start / Stop recording | R |
+| Mirror flip | M |
+| Exit prompter | Esc |
 
 ## Screenshots
+
+The screenshots below are from the previous single-window version of the app and are due for an update to reflect the Library/Editor/Prompter/Settings redesign — contributions welcome.
+
 ![Main Window](screenshots/main-window-to-add-text.png)
 
 ![Scrolling Teleprompt Window](screenshots/scolling-text-teleprompt-window.png)
