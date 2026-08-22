@@ -27,7 +27,6 @@ struct PrompterView: View {
     @StateObject private var recorder = RecordingController()
 
     @State private var didConfigure = false
-    @State private var hasCentered = false
     // Fetched once in `configure()` and cached, rather than re-querying SwiftData from
     // a computed property: `displayText` is read from `scrollingText`, which re-renders
     // on every ~8ms scroll-timer tick while playing, and a fresh FetchDescriptor on that
@@ -128,6 +127,11 @@ struct PrompterView: View {
     private var scrollingText: some View {
         GeometryReader { outerGeo in
             ZStack {
+                // `.position()` places the Text's own center at an exact, unambiguous
+                // point in this ZStack's coordinate space — see the comment on
+                // `TeleprompterEngine.scrollOffset` for why that (rather than
+                // `.offset()` relative to an implicit container alignment) is what
+                // makes the start/end bounds reason about correctly.
                 Text(displayText)
                     .font(.system(size: engine.fontSize, weight: .semibold, design: .rounded))
                     .foregroundColor(theme.text)
@@ -135,15 +139,32 @@ struct PrompterView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(engine.lineSpacing)
                     .shadow(color: .black.opacity(0.4), radius: 10, y: 2)
-                    .offset(y: engine.scrollOffset)
-                    .padding(.horizontal, 60)
+                    .frame(width: max(outerGeo.size.width - 120, 0))
                     .background(
                         GeometryReader { innerGeo in
                             Color.clear
-                                .onAppear { syncGeometry(outer: outerGeo, inner: innerGeo) }
-                                .onChange(of: engine.fontSize) { _, _ in syncGeometry(outer: outerGeo, inner: innerGeo) }
+                                .onAppear {
+                                    syncGeometry(outer: outerGeo, inner: innerGeo, resetPosition: true)
+                                }
+                                // `script` (and so `displayText`) loads asynchronously in
+                                // `configure()`, after this view's first appearance — the
+                                // Text starts out empty, so the .onAppear sync above runs
+                                // against ~zero height. Once the real script text lands,
+                                // the geometry must be re-measured (and the start position
+                                // re-derived from the real text height) or the scroll range
+                                // stays clamped to the empty-text size and nothing moves.
+                                .onChange(of: displayText) { _, _ in
+                                    syncGeometry(outer: outerGeo, inner: innerGeo, resetPosition: true)
+                                }
+                                // A live font-size change re-measures and re-clamps, but
+                                // deliberately doesn't jump back to the start — that would
+                                // yank the reader back to the top mid-read.
+                                .onChange(of: engine.fontSize) { _, _ in
+                                    syncGeometry(outer: outerGeo, inner: innerGeo, resetPosition: false)
+                                }
                         }
                     )
+                    .position(x: outerGeo.size.width / 2, y: engine.scrollOffset)
             }
             .frame(width: outerGeo.size.width, height: outerGeo.size.height)
             .mask(
@@ -225,19 +246,10 @@ struct PrompterView: View {
         }
     }
 
-    private func syncGeometry(outer: GeometryProxy, inner: GeometryProxy) {
-        let availableHeight = outer.size.height
-        let textHeight = inner.size.height
-        engine.updateGeometry(availableHeight: availableHeight, textHeight: textHeight)
-        // Only auto-center once, on first layout — re-running this on every geometry
-        // change (e.g. an A+/A- font-size tweak mid-read) used to compare
-        // `scrollOffset == 0` as an "unset" sentinel, but scrollOffset legitimately
-        // passes through exactly 0 during normal playback, which could snap the view
-        // back to center mid-read. `updateGeometry` above already re-clamps
-        // scrollOffset into bounds for the new geometry, which is all a resize needs.
-        if !hasCentered {
-            engine.scrollOffset = availableHeight / 2
-            hasCentered = true
+    private func syncGeometry(outer: GeometryProxy, inner: GeometryProxy, resetPosition: Bool) {
+        engine.updateGeometry(availableHeight: outer.size.height, textHeight: inner.size.height)
+        if resetPosition {
+            engine.resetToStart()
         }
     }
 

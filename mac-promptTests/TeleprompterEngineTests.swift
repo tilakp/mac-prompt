@@ -34,8 +34,28 @@ final class TeleprompterEngineTests: XCTestCase {
         let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
         engine.scrollOffset = -1000
         engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
-        let minOffset: CGFloat = -(400 - 200 / 2)
-        XCTAssertEqual(engine.scrollOffset, minOffset)
+        // minOffset = availableHeight/2 - textHeight/2 = 100 - 200 = -100.
+        XCTAssertEqual(engine.scrollOffset, -100)
+    }
+
+    func testResetToStartPlacesTextTopAtReadingLine() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
+        engine.resetToStart()
+        // maxOffset = availableHeight/2 + textHeight/2 = 100 + 200 = 300: the text's
+        // own top edge (scrollOffset - textHeight/2) then sits at availableHeight/2,
+        // the reading line, with nothing scrolled past it yet.
+        XCTAssertEqual(engine.scrollOffset, 300)
+        XCTAssertEqual(engine.scrollOffset - 400 / 2, 200 / 2)
+    }
+
+    func testMinOffsetPlacesTextBottomAtReadingLine() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
+        // The text's bottom edge (scrollOffset + textHeight/2) at minOffset should
+        // land exactly on the reading line too — the whole script has scrolled
+        // through it exactly once by the time scrolling finishes.
+        XCTAssertEqual(engine.minOffset + 400 / 2, 200 / 2)
     }
 
     func testAdvanceMovesOffsetUpwardWhilePlaying() {

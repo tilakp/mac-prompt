@@ -5,6 +5,7 @@
 //  The floating glass pill from the Prompter mockup: play/pause, speed, font size,
 //  mirror flip, a live voice-tracking indicator, record, and close.
 
+import AppKit
 import SwiftUI
 
 struct PrompterControlBar: View {
@@ -42,6 +43,12 @@ struct PrompterControlBar: View {
             if cameraEnabled {
                 Spacer().frame(width: 12)
                 recordButton
+                if let url = recorder.lastRecordingURL, !recorder.isRecording {
+                    smallButton(systemImage: "folder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                    .help("Reveal recording in Finder")
+                }
             }
 
             separator
