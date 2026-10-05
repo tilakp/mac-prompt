@@ -32,6 +32,7 @@ final class TeleprompterEngineTests: XCTestCase {
 
     func testScrollOffsetClamp() {
         let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
         engine.scrollOffset = -1000
         engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
         // minOffset = availableHeight/2 - textHeight/2 = 100 - 200 = -100.
@@ -61,6 +62,7 @@ final class TeleprompterEngineTests: XCTestCase {
     func testAdvanceMovesOffsetUpwardWhilePlaying() {
         let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
         engine.updateGeometryForTest(textHeight: 4000, availableHeight: 400)
+        engine.wordCount = 500
         engine.scrollOffset = 200
         engine.start()
         engine.advance(by: 1)
@@ -75,6 +77,45 @@ final class TeleprompterEngineTests: XCTestCase {
         engine.stop()
         engine.advance(by: 1)
         XCTAssertEqual(engine.scrollOffset, 200)
+    }
+
+    func testFirstMeasurementStartsAtTopOfScript() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        // The empty placeholder measures 0 high; the real text then loads.
+        engine.updateGeometryForTest(textHeight: 0, availableHeight: 200)
+        engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
+        XCTAssertEqual(engine.scrollOffset, engine.maxOffset)
+    }
+
+    func testReflowKeepsReadingProgress() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
+        // maxOffset = 300, so 200 is 100pt (a quarter of the text) past the start.
+        engine.scrollOffset = 200
+        // Bigger font: the text doubles in height. A quarter of 800pt past the new start.
+        engine.updateGeometryForTest(textHeight: 800, availableHeight: 200)
+        XCTAssertEqual(engine.maxOffset - engine.scrollOffset, 200)
+        // Taller window: progress stays a quarter.
+        engine.updateGeometryForTest(textHeight: 800, availableHeight: 600)
+        XCTAssertEqual(engine.maxOffset - engine.scrollOffset, 200)
+    }
+
+    func testFullScriptScrollsInItsEstimatedDuration() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.wordCount = 300 // 2 minutes at 150 wpm
+        engine.updateGeometryForTest(textHeight: 1200, availableHeight: 400)
+        XCTAssertEqual(engine.pointsPerSecond, 1200 / 120, accuracy: 0.0001)
+        // Same words in a wider window wrap to half the height: half the speed, same time.
+        engine.updateGeometryForTest(textHeight: 600, availableHeight: 400)
+        XCTAssertEqual(engine.pointsPerSecond, 600 / 120, accuracy: 0.0001)
+        engine.adjustSpeedMultiplier(by: 0.5)
+        XCTAssertEqual(engine.pointsPerSecond, 600 / 120 * 1.5, accuracy: 0.0001)
+    }
+
+    func testEmptyScriptDoesNotScroll() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.updateGeometryForTest(textHeight: 400, availableHeight: 200)
+        XCTAssertEqual(engine.pointsPerSecond, 0)
     }
 
     func testSpeedMultiplierIsClamped() {

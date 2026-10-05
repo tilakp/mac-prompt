@@ -18,6 +18,9 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var isGridLayout = true
 
+    var libraryOpenError: String? = nil
+    @State private var isShowingLibraryOpenError = false
+
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $selection, scriptCount: activeScripts.count, onNewScript: createScript)
@@ -25,12 +28,22 @@ struct LibraryView: View {
             Group {
                 if let selectedScript {
                     EditorView(script: selectedScript, onClose: { self.selectedScript = nil })
+                        // A new identity per script. Without it, "New Script" while the
+                        // editor is open reuses the text view, whose coordinator still
+                        // writes to the previous script's body (and keeps its undo stack).
+                        .id(selectedScript.id)
                 } else {
                     libraryGrid
                 }
             }
         }
         .background(theme.bg)
+        .onAppear { isShowingLibraryOpenError = libraryOpenError != nil }
+        .alert("Your library could not be opened", isPresented: $isShowingLibraryOpenError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Prompt is using a temporary library for this session. Scripts you create or change now are not saved. Your saved scripts were not changed, and Prompt tries to open them again at the next launch.\n\n\(libraryOpenError ?? "")")
+        }
     }
 
     private var libraryGrid: some View {
@@ -201,6 +214,9 @@ private struct ScriptRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .contextMenu {
+            if script.isTrashed {
+                Button("Put Back") { script.isTrashed = false }
+            }
             Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
         }
     }

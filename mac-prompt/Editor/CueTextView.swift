@@ -42,6 +42,7 @@ struct CueTextView: NSViewRepresentable {
         let textView = NSTextView()
         textView.delegate = context.coordinator
         textView.isRichText = false
+        textView.allowsUndo = true
         textView.font = .systemFont(ofSize: fontSize)
         textView.textColor = .labelColor
         textView.backgroundColor = .clear

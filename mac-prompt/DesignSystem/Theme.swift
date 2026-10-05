@@ -81,10 +81,15 @@ extension EnvironmentValues {
 
 /// Injects `theme` into the environment from the current color scheme every frame,
 /// so views just read `@Environment(\.theme)` instead of resolving it themselves.
+/// Also applies the Theme setting: `preferredColorScheme` sets the window's
+/// appearance, which then comes back down as this modifier's `colorScheme`.
 struct ThemedRoot: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppSettingsKey.theme) private var themeRaw = ThemePreference.dark.rawValue
     func body(content: Content) -> some View {
-        content.environment(\.theme, Theme.resolved(for: colorScheme))
+        content
+            .environment(\.theme, Theme.resolved(for: colorScheme))
+            .preferredColorScheme((ThemePreference(rawValue: themeRaw) ?? .dark).colorScheme)
     }
 }
 

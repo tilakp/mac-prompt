@@ -33,6 +33,9 @@ struct ScriptCardView: View {
                             .foregroundColor(theme.amber)
                     }
                     Menu {
+                        if script.isTrashed {
+                            Button("Put Back") { script.isTrashed = false }
+                        }
                         Button(script.isFavorite ? "Remove from Favorites" : "Add to Favorites", action: onToggleFavorite)
                         Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
                     } label: {
@@ -75,6 +78,9 @@ struct ScriptCardView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .contextMenu {
+            if script.isTrashed {
+                Button("Put Back") { script.isTrashed = false }
+            }
             Button(script.isFavorite ? "Remove from Favorites" : "Add to Favorites", action: onToggleFavorite)
             Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
         }

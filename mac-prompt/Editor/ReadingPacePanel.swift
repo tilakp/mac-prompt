@@ -9,7 +9,9 @@ struct ReadingPacePanel: View {
     @Environment(\.theme) private var theme
     @Bindable var script: Script
 
-    private let range: ClosedRange<Double> = 100...220
+    /// The same range as Settings > Default scroll speed, so a new script's default
+    /// pace is always a value this slider can show.
+    private let range: ClosedRange<Double> = 80...240
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

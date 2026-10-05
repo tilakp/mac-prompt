@@ -137,7 +137,16 @@ final class RecordingController: NSObject, ObservableObject {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         let stamp = formatter.string(from: .now).replacingOccurrences(of: ":", with: "-")
-        return recordingsDirectory().appendingPathComponent("Prompt-\(stamp).mov")
+        let directory = recordingsDirectory()
+        // Two takes started in the same second would get the same name, and
+        // AVCaptureMovieFileOutput fails to record to a file that already exists.
+        var url = directory.appendingPathComponent("Prompt-\(stamp).mov")
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = directory.appendingPathComponent("Prompt-\(stamp)-\(suffix).mov")
+            suffix += 1
+        }
+        return url
     }
 }
 
@@ -148,11 +157,15 @@ extension RecordingController: AVCaptureFileOutputRecordingDelegate {
         from connections: [AVCaptureConnection],
         error: Error?
     ) {
+        // AVFoundation can report an error for a file that still finished correctly
+        // (e.g. the session stopped); it then sets this key, and the file is usable.
+        let finished = error == nil
+            || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
         Task { @MainActor in
             self.isRecording = false
             self.elapsedTimer?.invalidate()
             self.elapsedTimer = nil
-            if error == nil {
+            if finished {
                 self.lastRecordingURL = outputFileURL
             }
         }

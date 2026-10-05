@@ -8,21 +8,29 @@
 //  measures the presenter's actual words-per-minute since the current recognition
 //  session started, and smoothly nudges TeleprompterEngine.speedMultiplier toward
 //  that measured rate. It also reports mic RMS level for the control bar's waveform.
+//  `@Observable`, so the ~20Hz `micLevel` updates re-render only the control bar's
+//  waveform, not the whole Prompter view.
 
 import AVFoundation
+import Observation
 import Speech
 
 @MainActor
-final class VoiceTracker: ObservableObject {
-    @Published private(set) var isListening = false
-    @Published private(set) var micLevel: Double = 0
-    @Published private(set) var measuredWPM: Double?
+@Observable
+final class VoiceTracker {
+    private(set) var isListening = false
+    private(set) var micLevel: Double = 0
+    private(set) var measuredWPM: Double?
 
     var sensitivity: VoiceTrackingSensitivity = .balanced
 
-    private let audioEngine = AVAudioEngine()
-    private var task: SFSpeechRecognitionTask?
-    private var request: SFSpeechAudioBufferRecognitionRequest?
+    @ObservationIgnored private let audioEngine = AVAudioEngine()
+    /// Kept for the whole session: the recognition task must not outlive its recognizer.
+    @ObservationIgnored private var recognizer: SFSpeechRecognizer?
+    @ObservationIgnored private var task: SFSpeechRecognitionTask?
+    @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
+    /// Incremented on each `start()`, so callbacks from an older recognition task are ignored.
+    @ObservationIgnored private var sessionID = 0
 
     /// Touched only from the audio tap's render-thread callback below (never from
     /// MainActor code), which AVAudioEngine always invokes serially on the same
@@ -30,8 +38,8 @@ final class VoiceTracker: ObservableObject {
     /// hops to MainActor to publish `micLevel`: the callback fires ~40-50x/sec for
     /// the whole session (30-60+ min), but the control bar only animates 4 bars, so
     /// there's no UX benefit to updating faster than ~20Hz — just actor-hop overhead.
-    nonisolated(unsafe) private var lastLevelUpdate = Date.distantPast
-    private var sessionStartDate: Date?
+    @ObservationIgnored nonisolated(unsafe) private var lastLevelUpdate = Date.distantPast
+    @ObservationIgnored private var sessionStartDate: Date?
 
     static func requestPermissions() async -> Bool {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
@@ -45,7 +53,16 @@ final class VoiceTracker: ObservableObject {
 
     func start(engine: TeleprompterEngine) {
         guard !isListening else { return }
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else { return }
+        // The user's own language first; nil means it is not supported, so fall back to en-US.
+        let recognizer = self.recognizer ?? SFSpeechRecognizer() ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        self.recognizer = recognizer
+        guard let recognizer, recognizer.isAvailable else { return }
+
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        // With no input device (e.g. a Mac mini with no mic) the format has a zero
+        // sample rate, and installTap raises an Objective-C exception that crashes the app.
+        guard format.sampleRate > 0, format.channelCount > 0 else { return }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -53,8 +70,6 @@ final class VoiceTracker: ObservableObject {
         self.request = request
         sessionStartDate = .now
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             request.append(buffer)
@@ -74,10 +89,15 @@ final class VoiceTracker: ObservableObject {
             return
         }
         isListening = true
+        sessionID += 1
+        let session = sessionID
 
         task = recognizer.recognitionTask(with: request) { [weak self, weak engine] result, error in
             Task { @MainActor [weak self, weak engine] in
-                guard let self, let engine else { return }
+                // A cancelled task (from stop() or restart()) still calls this handler with
+                // an error. Without this check, that late callback restarts the new session,
+                // which cancels it in turn, and so on in a loop.
+                guard let self, let engine, session == self.sessionID else { return }
                 if let result {
                     self.handle(result: result, engine: engine)
                 }

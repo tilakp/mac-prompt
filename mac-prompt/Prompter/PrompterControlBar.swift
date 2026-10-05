@@ -10,8 +10,8 @@ import SwiftUI
 
 struct PrompterControlBar: View {
     @Environment(\.theme) private var theme
-    @ObservedObject var engine: TeleprompterEngine
-    @ObservedObject var voiceTracker: VoiceTracker
+    let engine: TeleprompterEngine
+    let voiceTracker: VoiceTracker
     @ObservedObject var recorder: RecordingController
     var voiceTrackingEnabled: Bool
     var cameraEnabled: Bool

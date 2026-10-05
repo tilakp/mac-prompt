@@ -22,23 +22,25 @@ struct PrompterView: View {
     @AppStorage(AppSettingsKey.cameraPassthroughEnabled) private var cameraPassthroughEnabled = true
     @AppStorage(AppSettingsKey.cameraDeviceID) private var cameraDeviceID = ""
 
-    @StateObject private var engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
-    @StateObject private var voiceTracker = VoiceTracker()
+    @State private var engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+    @State private var voiceTracker = VoiceTracker()
     @StateObject private var recorder = RecordingController()
 
     @State private var didConfigure = false
     // Fetched once in `configure()` and cached, rather than re-querying SwiftData from
-    // a computed property: `displayText` is read from `scrollingText`, which re-renders
-    // on every ~8ms scroll-timer tick while playing, and a fresh FetchDescriptor on that
-    // hot path would add redundant database work throughout every session.
+    // a computed property on every render.
     @State private var script: Script?
+    /// `script.body` with markup removed, computed only when the body changes. The
+    /// scrolling text re-renders on every frame while playing, and running the markup
+    /// regexes over the whole script on each frame is wasted work.
+    @State private var displayText = ""
 
     var body: some View {
         ZStack {
             background
             legibilityScrim
             readingGuideBand
-            scrollingText
+            PrompterScrollingText(text: displayText, engine: engine)
             topStatusPill
             VStack {
                 Spacer()
@@ -59,8 +61,28 @@ struct PrompterView: View {
         )
         .frame(minWidth: 900, minHeight: 600)
         .task { await configure() }
+        // Also runs once when `configure()` first loads the script (nil to its body).
+        // Later changes are live edits from the editor window.
+        .onChange(of: script?.body) { _, _ in
+            guard let script else { return }
+            displayText = Script.plainDisplayText(from: script.body)
+            engine.wordCount = script.wordCount
+        }
         .onChange(of: cameraPassthroughEnabled) { _, enabled in
             Task { await updateCameraPassthrough(enabled: enabled) }
+        }
+        .onChange(of: cameraDeviceID) { _, deviceID in
+            // Switch only a camera that is already running. Reconfiguring removes the
+            // movie output, which would cut a recording, so during one the new camera
+            // is used from the next session.
+            guard recorder.isCameraReady, !recorder.isRecording else { return }
+            recorder.configure(deviceID: deviceID.isEmpty ? nil : deviceID)
+        }
+        .onChange(of: voiceTrackingEnabled) { _, enabled in
+            Task { await updateVoiceTracking(enabled: enabled) }
+        }
+        .onChange(of: sensitivityRaw) { _, raw in
+            voiceTracker.sensitivity = VoiceTrackingSensitivity(rawValue: raw) ?? .balanced
         }
         .onDisappear {
             engine.stop()
@@ -73,7 +95,7 @@ struct PrompterView: View {
 
     @ViewBuilder private var background: some View {
         if cameraPassthroughEnabled {
-            CameraPreviewView(session: recorder.session)
+            CameraPreviewView(session: recorder.session, isCameraReady: recorder.isCameraReady)
                 .ignoresSafeArea()
         } else {
             theme.bg.ignoresSafeArea()
@@ -124,69 +146,6 @@ struct PrompterView: View {
         }
     }
 
-    private var scrollingText: some View {
-        GeometryReader { outerGeo in
-            ZStack {
-                // `.position()` places the Text's own center at an exact, unambiguous
-                // point in this ZStack's coordinate space — see the comment on
-                // `TeleprompterEngine.scrollOffset` for why that (rather than
-                // `.offset()` relative to an implicit container alignment) is what
-                // makes the start/end bounds reason about correctly.
-                Text(displayText)
-                    .font(.system(size: engine.fontSize, weight: .semibold, design: .rounded))
-                    .foregroundColor(theme.text)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineSpacing(engine.lineSpacing)
-                    .shadow(color: .black.opacity(0.4), radius: 10, y: 2)
-                    .frame(width: max(outerGeo.size.width - 120, 0))
-                    .background(
-                        GeometryReader { innerGeo in
-                            Color.clear
-                                .onAppear {
-                                    syncGeometry(outer: outerGeo, inner: innerGeo, resetPosition: true)
-                                }
-                                // `script` (and so `displayText`) loads asynchronously in
-                                // `configure()`, after this view's first appearance — the
-                                // Text starts out empty, so the .onAppear sync above runs
-                                // against ~zero height. Once the real script text lands,
-                                // the geometry must be re-measured (and the start position
-                                // re-derived from the real text height) or the scroll range
-                                // stays clamped to the empty-text size and nothing moves.
-                                .onChange(of: displayText) { _, _ in
-                                    syncGeometry(outer: outerGeo, inner: innerGeo, resetPosition: true)
-                                }
-                                // A live font-size change re-measures and re-clamps, but
-                                // deliberately doesn't jump back to the start — that would
-                                // yank the reader back to the top mid-read.
-                                .onChange(of: engine.fontSize) { _, _ in
-                                    syncGeometry(outer: outerGeo, inner: innerGeo, resetPosition: false)
-                                }
-                        }
-                    )
-                    .position(x: outerGeo.size.width / 2, y: engine.scrollOffset)
-            }
-            .frame(width: outerGeo.size.width, height: outerGeo.size.height)
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.2),
-                        .init(color: .black, location: 0.8),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-        }
-    }
-
-    private var displayText: String {
-        guard let script else { return "" }
-        return Script.plainDisplayText(from: script.body)
-    }
-
     // MARK: - Setup
 
     private func configure() async {
@@ -205,25 +164,32 @@ struct PrompterView: View {
         engine.fontSize = defaultSize
         engine.lineSpacing = fetchedScript.lineSpacingStyle.points
         voiceTracker.sensitivity = VoiceTrackingSensitivity(rawValue: sensitivityRaw) ?? .balanced
-        engine.start()
 
         // `.task` cancels this Task automatically when the view disappears, but that
         // cancellation can't interrupt an in-flight system permission dialog — only
         // the `await` returning. Re-check after each one before touching hardware, so
         // closing the window while a dialog is still up can't leave the camera/mic
         // starting up moments after the window (and every other cleanup path) is gone.
+        // A denied permission skips only its own feature: no camera must not also mean
+        // no voice tracking.
         if cameraPassthroughEnabled {
             let granted = await RecordingController.requestCameraAccess()
-            guard !Task.isCancelled, granted else { return }
-            recorder.configure(deviceID: cameraDeviceID.isEmpty ? nil : cameraDeviceID)
-            recorder.start()
+            guard !Task.isCancelled else { return }
+            if granted {
+                recorder.configure(deviceID: cameraDeviceID.isEmpty ? nil : cameraDeviceID)
+                recorder.start()
+            }
         }
 
         if voiceTrackingEnabled {
             let granted = await VoiceTracker.requestPermissions()
-            guard !Task.isCancelled, granted else { return }
-            voiceTracker.start(engine: engine)
+            guard !Task.isCancelled else { return }
+            if granted { voiceTracker.start(engine: engine) }
         }
+
+        // Start scrolling only after the permission dialogs, so the first lines do not
+        // scroll past behind them.
+        engine.start()
     }
 
     /// Reacts to the Camera Passthrough setting changing while this Prompter window is
@@ -246,10 +212,17 @@ struct PrompterView: View {
         }
     }
 
-    private func syncGeometry(outer: GeometryProxy, inner: GeometryProxy, resetPosition: Bool) {
-        engine.updateGeometry(availableHeight: outer.size.height, textHeight: inner.size.height)
-        if resetPosition {
-            engine.resetToStart()
+    /// Reacts to the Voice Tracking setting changing while this Prompter window is
+    /// open, so switching it off stops the tracker instead of letting it keep changing
+    /// the speed with its indicator hidden.
+    private func updateVoiceTracking(enabled: Bool) async {
+        guard didConfigure else { return }
+        if enabled {
+            let granted = await VoiceTracker.requestPermissions()
+            guard granted else { return }
+            voiceTracker.start(engine: engine)
+        } else {
+            voiceTracker.stop()
         }
     }
 
@@ -268,6 +241,69 @@ struct PrompterView: View {
         case .r: recorder.isRecording ? recorder.stopRecording() : recorder.startRecording()
         case .m: engine.mirrored.toggle()
         case .escape: close()
+        }
+    }
+}
+
+/// The scrolling script text. A separate view so the per-frame `scrollOffset` change
+/// re-renders only this view, not the camera background or the control bar.
+private struct PrompterScrollingText: View {
+    @Environment(\.theme) private var theme
+    let text: String
+    let engine: TeleprompterEngine
+
+    var body: some View {
+        GeometryReader { outerGeo in
+            ZStack {
+                // `.position()` places the Text's own center at an exact, unambiguous
+                // point in this ZStack's coordinate space — see the comment on
+                // `TeleprompterEngine.scrollOffset` for why that (rather than
+                // `.offset()` relative to an implicit container alignment) is what
+                // makes the start/end bounds reason about correctly.
+                Text(text)
+                    .font(.system(size: engine.fontSize, weight: .semibold, design: .rounded))
+                    .foregroundColor(theme.text)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(engine.lineSpacing)
+                    .shadow(color: .black.opacity(0.4), radius: 10, y: 2)
+                    .frame(width: max(outerGeo.size.width - 120, 0))
+                    .background(
+                        GeometryReader { innerGeo in
+                            Color.clear
+                                .onAppear {
+                                    engine.updateGeometry(availableHeight: outerGeo.size.height, textHeight: innerGeo.size.height)
+                                    engine.resetToStart()
+                                }
+                                // Any later change in either height re-measures. This
+                                // covers the script text loading (it starts out empty,
+                                // because `configure()` fetches it after first appearance),
+                                // live edits, A+/A-, and window resizes or full screen,
+                                // which re-wrap the text. `updateGeometry` keeps the
+                                // reader's progress, so none of these jump to the top.
+                                .onChange(of: innerGeo.size.height) { _, height in
+                                    engine.updateGeometry(availableHeight: outerGeo.size.height, textHeight: height)
+                                }
+                                .onChange(of: outerGeo.size.height) { _, height in
+                                    engine.updateGeometry(availableHeight: height, textHeight: innerGeo.size.height)
+                                }
+                        }
+                    )
+                    .position(x: outerGeo.size.width / 2, y: engine.scrollOffset)
+            }
+            .frame(width: outerGeo.size.width, height: outerGeo.size.height)
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.2),
+                        .init(color: .black, location: 0.8),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
     }
 }

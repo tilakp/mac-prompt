@@ -15,6 +15,14 @@ enum ThemePreference: String, CaseIterable, Identifiable, Hashable {
         case .auto: return "Auto"
         }
     }
+    /// nil follows the system appearance.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .dark: return .dark
+        case .light: return .light
+        case .auto: return nil
+        }
+    }
 }
 
 enum PrompterFontSize: String, CaseIterable, Identifiable, Hashable {

@@ -16,6 +16,9 @@ import SwiftUI
 /// `PrompterView`.
 struct CameraPreviewView: NSViewRepresentable {
     let session: AVCaptureSession
+    /// The preview layer's connection exists only after the session gets a camera
+    /// input, so mirroring is applied again when this turns true.
+    let isCameraReady: Bool
 
     func makeNSView(context: Context) -> PreviewNSView {
         let view = PreviewNSView()
