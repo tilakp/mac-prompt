@@ -6,5 +6,5 @@ create-dmg \
   --icon "mac-prompt.app" 200 190 \
   --hide-extension "mac-prompt.app" \
   --app-drop-link 600 185 \
-  "mac-prompt-Installer.dmg" \
+  "MacPrompt.dmg" \
   "./release/"
