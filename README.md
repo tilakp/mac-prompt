@@ -29,7 +29,7 @@ recording, and mic-driven voice tracking.
 ## Getting Started
 
 **Option 1: download the app.** Grab the latest DMG from
-[Releases](https://github.com/tilakp/mac-prompt/releases/tag/latest-release), open it, and drag
+[Releases](https://github.com/tilakp/mac-prompt/releases/latest), open it, and drag
 Prompt into Applications. Since it isn't notarized or signed with a paid Apple Developer account,
 the first launch needs a right-click then Open (or System Settings, Privacy & Security, "Open
 Anyway") to get past Gatekeeper.
