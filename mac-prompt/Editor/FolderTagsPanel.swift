@@ -29,7 +29,7 @@ struct FolderTagsPanel: View {
             } label: {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(theme.accentPalette[script.accentIndex % theme.accentPalette.count])
+                        .fill(script.folder.map { theme.accentPalette[$0.accentIndex % theme.accentPalette.count] } ?? theme.textFaint)
                         .frame(width: 8, height: 8)
                     Text(script.folder?.name ?? "No Folder")
                         .font(.system(size: 13, weight: .semibold))
@@ -65,7 +65,8 @@ struct FolderTagsPanel: View {
 
     private func addTag() {
         let trimmed = newTag.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, !script.tags.contains(trimmed) else { return }
+        guard !trimmed.isEmpty,
+              !script.tags.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else { return }
         script.tags.append(trimmed)
         newTag = ""
     }

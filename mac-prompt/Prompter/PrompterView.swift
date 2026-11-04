@@ -34,6 +34,7 @@ struct PrompterView: View {
     /// scrolling text re-renders on every frame while playing, and running the markup
     /// regexes over the whole script on each frame is wasted work.
     @State private var displayText = ""
+    @State private var didLoadText = false
 
     var body: some View {
         ZStack {
@@ -57,16 +58,42 @@ struct PrompterView: View {
         }
         .scaleEffect(x: engine.mirrored ? -1 : 1, y: 1)
         .background(
-            PrompterKeyCatcherView(onKeyPress: handle)
+            // The display link follows this view's window to whichever screen it is on.
+            PrompterKeyCatcherView(onKeyPress: handle, onAttach: { engine.attach(to: $0) })
         )
         .frame(minWidth: 900, minHeight: 600)
         .task { await configure() }
         // Also runs once when `configure()` first loads the script (nil to its body).
-        // Later changes are live edits from the editor window.
-        .onChange(of: script?.body) { _, _ in
+        // Later changes are live edits from the editor window. Those wait until typing
+        // pauses: each update runs the markup regexes and lays out the whole script again.
+        .task(id: script?.body) {
             guard let script else { return }
+            if didLoadText {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            didLoadText = true
             displayText = Script.plainDisplayText(from: script.body)
             engine.wordCount = script.wordCount
+        }
+        // Pace and line spacing edited in the editor while this window is open.
+        .onChange(of: script?.targetWPM) { _, wpm in
+            if let wpm { engine.baseWPM = wpm }
+        }
+        .onChange(of: script?.lineSpacingStyleRaw) { _, _ in
+            if let script { engine.lineSpacing = script.lineSpacingStyle.points }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .prompterDidOpen)) { note in
+            // One Prompter at a time: each one runs its own camera session and speech
+            // recognizer, and two of them take the camera and mic from each other.
+            guard let id = note.object as? UUID, id != scriptID else { return }
+            close()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .scriptWillBeDeleted)) { note in
+            guard let id = note.object as? UUID, id == scriptID else { return }
+            // Drop the model before the delete happens, then close the window.
+            script = nil
+            close()
         }
         .onChange(of: cameraPassthroughEnabled) { _, enabled in
             Task { await updateCameraPassthrough(enabled: enabled) }
@@ -153,6 +180,9 @@ struct PrompterView: View {
         didConfigure = true
 
         guard let scriptID else { return }
+        // Before the permission dialogs and the camera: another Prompter closes and
+        // releases the camera and mic.
+        NotificationCenter.default.post(name: .prompterDidOpen, object: scriptID)
         let descriptor = FetchDescriptor<Script>(predicate: #Predicate<Script> { $0.id == scriptID })
         guard let fetchedScript = try? modelContext.fetch(descriptor).first else { return }
         script = fetchedScript
@@ -245,6 +275,11 @@ struct PrompterView: View {
     }
 }
 
+extension Notification.Name {
+    /// Posted by a Prompter window as it starts, with its script's `id` as the object.
+    static let prompterDidOpen = Notification.Name("prompterDidOpen")
+}
+
 /// The scrolling script text. A separate view so the per-frame `scrollOffset` change
 /// re-renders only this view, not the camera background or the control bar.
 private struct PrompterScrollingText: View {
@@ -266,7 +301,6 @@ private struct PrompterScrollingText: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(engine.lineSpacing)
-                    .shadow(color: .black.opacity(0.4), radius: 10, y: 2)
                     .frame(width: max(outerGeo.size.width - 120, 0))
                     .background(
                         GeometryReader { innerGeo in
@@ -292,6 +326,12 @@ private struct PrompterScrollingText: View {
                     .position(x: outerGeo.size.width / 2, y: engine.scrollOffset)
             }
             .frame(width: outerGeo.size.width, height: outerGeo.size.height)
+            // The shadow is on the window-sized, clipped layer, not on the Text. A blur
+            // shadow renders its view offscreen, and the Text of a long script is tens
+            // of thousands of points tall. The look is the same: the clipped edges are
+            // where the mask below fades to clear.
+            .clipped()
+            .shadow(color: .black.opacity(0.4), radius: 10, y: 2)
             .mask(
                 LinearGradient(
                     stops: [

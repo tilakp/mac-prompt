@@ -58,6 +58,7 @@ struct CueTextView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.string = text
+        textView.textStorage?.delegate = context.coordinator
         controller.textView = textView
         context.coordinator.applyHighlighting(to: textView)
 
@@ -89,38 +90,80 @@ struct CueTextView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
         let text: Binding<String>
+        /// Characters edited since the last highlight. Restyling the whole document on
+        /// each keystroke makes the text view lay out all of it again, which is slow
+        /// for a long script, so only the paragraphs around this range are restyled.
+        private var dirtyRange: NSRange?
 
         init(text: Binding<String>) {
             self.text = text
         }
 
+        nonisolated func textStorage(
+            _ textStorage: NSTextStorage,
+            didProcessEditing editedMask: NSTextStorageEditActions,
+            range editedRange: NSRange,
+            changeInLength delta: Int
+        ) {
+            // Attribute-only edits are our own highlighting.
+            guard editedMask.contains(.editedCharacters) else { return }
+            // The text view's storage is edited only on the main thread.
+            MainActor.assumeIsolated {
+                dirtyRange = dirtyRange.map { NSUnionRange($0, editedRange) } ?? editedRange
+            }
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            // Wait while an input method (e.g. Japanese or Chinese) has uncommitted
+            // marked text: it is not part of the script yet (do not save it or show it
+            // in the Prompter), and restyling it removes its underline and can break
+            // the input. Committing it sends this notification again.
+            guard !textView.hasMarkedText() else { return }
             text.wrappedValue = textView.string
-            applyHighlighting(to: textView)
+            guard let dirty = dirtyRange else { return }
+            dirtyRange = nil
+            applyHighlighting(to: textView, around: dirty)
         }
 
         func applyHighlighting(to textView: NSTextView) {
+            dirtyRange = nil
+            applyHighlighting(to: textView, around: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
+        }
+
+        /// Restyles the paragraphs that `range` touches, plus one paragraph on each side
+        /// (a cue such as "»»" + line break + "FASTER" can span a line break).
+        private func applyHighlighting(to textView: NSTextView, around range: NSRange) {
             guard let storage = textView.textStorage else { return }
-            let fullRange = NSRange(location: 0, length: storage.length)
+            let string = storage.string as NSString
+            let length = string.length
+            // Ranges from earlier edits can end past the text after a later deletion.
+            let location = min(range.location, length)
+            var target = string.paragraphRange(for: NSRange(location: location, length: min(range.length, length - location)))
+            if target.location > 0 {
+                target = NSUnionRange(target, string.paragraphRange(for: NSRange(location: target.location - 1, length: 0)))
+            }
+            if NSMaxRange(target) < length {
+                target = NSUnionRange(target, string.paragraphRange(for: NSRange(location: NSMaxRange(target), length: 0)))
+            }
             let baseFont = textView.font ?? .systemFont(ofSize: 18)
 
             storage.beginEditing()
-            storage.setAttributes([.font: baseFont, .foregroundColor: NSColor.labelColor], range: fullRange)
+            storage.setAttributes([.font: baseFont, .foregroundColor: NSColor.labelColor], range: target)
 
             let plain = storage.string
-            for match in CueToken.cueRegex.matches(in: plain, range: fullRange) {
+            for match in CueToken.cueRegex.matches(in: plain, range: target) {
                 storage.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: match.range)
                 storage.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: baseFont.pointSize), range: match.range)
             }
             let boldFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-            for match in CueToken.boldRegex.matches(in: plain, range: fullRange) {
+            for match in CueToken.boldRegex.matches(in: plain, range: target) {
                 storage.addAttribute(.font, value: boldFont, range: match.range)
             }
             let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-            for match in CueToken.italicRegex.matches(in: plain, range: fullRange) {
+            for match in CueToken.italicRegex.matches(in: plain, range: target) {
                 storage.addAttribute(.font, value: italicFont, range: match.range)
             }
             storage.endEditing()

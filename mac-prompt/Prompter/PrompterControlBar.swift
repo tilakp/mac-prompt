@@ -98,7 +98,27 @@ struct PrompterControlBar: View {
         Rectangle().fill(Color.white.opacity(0.14)).frame(width: 1, height: 22)
     }
 
-    private var voiceTrackingIndicator: some View {
+    @ViewBuilder private var voiceTrackingIndicator: some View {
+        if voiceTracker.didFail {
+            Button {
+                voiceTracker.retry(engine: engine)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text("Retry")
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(theme.amber)
+                .padding(.horizontal, 4)
+            }
+            .buttonStyle(.plain)
+            .help("Speech recognition stopped after repeated errors. Click to try again.")
+        } else {
+            voiceTrackingLevel
+        }
+    }
+
+    private var voiceTrackingLevel: some View {
         HStack(spacing: 8) {
             Image(systemName: "waveform")
                 .font(.system(size: 13, weight: .semibold))

@@ -14,13 +14,15 @@ struct EditorView: View {
     @StateObject private var cueController = CueTextController()
 
     var body: some View {
+        // Counted once per update: each count runs a regex over the whole body.
+        let wordCount = script.wordCount
         VStack(spacing: 0) {
-            header
+            header(wordCount: wordCount)
             Divider().overlay(theme.border)
             HStack(spacing: 0) {
                 editorColumn
                 Divider().overlay(theme.border)
-                inspector
+                inspector(wordCount: wordCount)
             }
         }
         .background(theme.bg)
@@ -28,7 +30,7 @@ struct EditorView: View {
         .onChange(of: script.title) { _, _ in script.editedAt = .now }
     }
 
-    private var header: some View {
+    private func header(wordCount: Int) -> some View {
         HStack(spacing: 10) {
             Button(action: onClose) {
                 HStack(spacing: 6) {
@@ -50,7 +52,7 @@ struct EditorView: View {
 
             Spacer()
 
-            Text("\(script.wordCount) words · ~\(script.estimatedDuration) at \(script.targetWPM) wpm")
+            Text("\(wordCount) words · ~\(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM)) at \(script.targetWPM) wpm")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(theme.textFaint)
 
@@ -82,10 +84,10 @@ struct EditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var inspector: some View {
+    private func inspector(wordCount: Int) -> some View {
         ScrollView {
             VStack(spacing: 16) {
-                ReadingPacePanel(script: script)
+                ReadingPacePanel(script: script, wordCount: wordCount)
                 AppearancePanel(script: script)
                 FolderTagsPanel(script: script)
             }

@@ -118,6 +118,16 @@ final class TeleprompterEngineTests: XCTestCase {
         XCTAssertEqual(engine.pointsPerSecond, 0)
     }
 
+    func testManualSpeedChangesAreKeptAsAnOffset() {
+        let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
+        engine.adjustSpeedMultiplier(by: 0.2)
+        XCTAssertEqual(engine.manualSpeedOffset, 0.2, accuracy: 0.0001)
+        // Only the part of a change that the clamp lets through counts.
+        engine.speedMultiplier = 1.9
+        engine.adjustSpeedMultiplier(by: 0.5)
+        XCTAssertEqual(engine.manualSpeedOffset, 0.3, accuracy: 0.0001)
+    }
+
     func testSpeedMultiplierIsClamped() {
         let engine = TeleprompterEngine(baseWPM: 150, fontSize: 48, lineSpacing: 12)
         engine.adjustSpeedMultiplier(by: 10)

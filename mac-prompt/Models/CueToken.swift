@@ -28,8 +28,9 @@ enum CueToken: String, CaseIterable {
     var insertionText: String { displayText }
 
     static let cueRegex: NSRegularExpression = {
-        // Matches "[PAUSE]", "[EMPHASIS]", "»» FASTER", "«« SLOWER".
-        let pattern = #"\[(PAUSE|EMPHASIS)\]|»»\s*FASTER|««\s*SLOWER"#
+        // Matches "[PAUSE]", "[EMPHASIS]", "»» FASTER", "«« SLOWER". A cue is on one
+        // line (like bold and italic), so the editor can restyle edited lines only.
+        let pattern = #"\[(PAUSE|EMPHASIS)\]|»»[ \t]*FASTER|««[ \t]*SLOWER"#
         return try! NSRegularExpression(pattern: pattern)
     }()
 
@@ -38,8 +39,9 @@ enum CueToken: String, CaseIterable {
     }()
 
     static let italicRegex: NSRegularExpression = {
-        // Single-asterisk emphasis that isn't part of a "**bold**" run.
-        try! NSRegularExpression(pattern: #"(?<!\*)\*([^*\n]+)\*(?!\*)"#)
+        // Single-asterisk emphasis that isn't part of a "**bold**" run. The text must
+        // touch both markers, so arithmetic such as "5 * 3 * 2" is not italic.
+        try! NSRegularExpression(pattern: #"(?<!\*)\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?!\*)"#)
     }()
 
     /// All regexes whose matches should be removed entirely when computing word

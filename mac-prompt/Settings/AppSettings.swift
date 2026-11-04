@@ -54,8 +54,8 @@ enum VoiceTrackingSensitivity: String, CaseIterable, Identifiable, Hashable {
         case .high: return "High"
         }
     }
-    /// Fraction of the measured speed gap corrected per engine tick. Higher = snappier,
-    /// more prone to overshoot on a noisy mic signal.
+    /// Fraction of the measured speed gap corrected per 0.2 s (`VoiceTracker.smoothingStep`).
+    /// Higher = snappier, more prone to overshoot on a noisy mic signal.
     var dampingFactor: Double {
         switch self {
         case .low: return 0.015
