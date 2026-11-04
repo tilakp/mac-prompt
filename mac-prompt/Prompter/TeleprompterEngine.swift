@@ -2,26 +2,18 @@
 //  TeleprompterEngine.swift
 //  mac-prompt
 //
-//  Generalized from the original ContentView's startScrolling/stopScrolling/
-//  updateGeometry scroll-clamping logic, plus a speed multiplier the control bar and
-//  VoiceTracker can both drive. `advance(by:)` is exposed directly so unit tests can
-//  verify the scrolling math without waiting on a real display link.
+//  The Prompter's scrolling: play/pause, speed, and the scroll position. A display
+//  link calls `advance(by:)` with the real time since the last frame; unit tests call
+//  it directly.
 //
-//  `scrollOffset` is the Y coordinate — in the Prompter view's own coordinate space —
-//  of the scrolling text block's vertical CENTER, meant to be applied via
-//  `.position(y: scrollOffset)` rather than `.offset(y:)`. `.position()` places a
-//  view's center at an exact, unambiguous point, which is what makes the two bounds
-//  below reason about cleanly: at `maxOffset` the text's own TOP edge sits at the
-//  reading line (vertical center of the window, where the reading-guide band is drawn)
-//  so the very first line is immediately readable there; at `minOffset` the text's
-//  BOTTOM edge has reached that same line, so the whole script has scrolled through it
-//  exactly once. (`.offset(y:)` was tried first and abandoned — its effective starting
-//  position depends on the exact default alignment of whatever ancestor container
-//  wraps the text, which turned out to be too easy to get subtly wrong.)
+//  `scrollOffset` is the Y position of the text's center in the Prompter view, for
+//  `.position(y:)`. The reading line is the middle of the view, so at `maxOffset` the
+//  text's top edge is on the reading line (the start), and at `minOffset` its bottom
+//  edge is (the end). `.position` is used because `.offset` would depend on the
+//  alignment of the container around the text.
 //
-//  `@Observable` (not `ObservableObject`) so a view re-renders only when a property it
-//  actually reads changes: `scrollOffset` changes every frame while playing, and only
-//  the scrolling text reads it.
+//  `@Observable`, so only views that read a property update when it changes:
+//  `scrollOffset` changes on every frame, and only the scrolling text reads it.
 
 import AppKit
 import Observation
@@ -93,12 +85,6 @@ final class TeleprompterEngine {
         self.textHeight = textHeight
         scrollOffset = maxOffset - progress * textHeight
         clampOffset()
-    }
-
-    /// Testable helper mirroring `updateGeometry`, kept for parity with the previous
-    /// `ContentView.updateGeometryForTest`.
-    func updateGeometryForTest(textHeight: CGFloat, availableHeight: CGFloat) {
-        updateGeometry(availableHeight: availableHeight, textHeight: textHeight)
     }
 
     private func clampOffset() {

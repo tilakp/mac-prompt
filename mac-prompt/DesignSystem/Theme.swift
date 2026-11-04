@@ -2,10 +2,9 @@
 //  Theme.swift
 //  mac-prompt
 //
-//  Native adaptation of the "Prompt" design concept: the mockup's OKLCH violet/coral
-//  palette and Space Grotesk/Plus Jakarta Sans type, reproduced with SwiftUI Color
-//  literals and the system font's rounded design so the app has no font-bundling or
-//  licensing dependencies.
+//  The app's violet/coral palette in light and dark versions, its fonts, and shared
+//  styles. Headings use the system font's rounded design, so the app bundles no font
+//  files.
 
 import SwiftUI
 
@@ -30,6 +29,12 @@ struct Theme {
 
     /// The four folder/script accent colors, in round-robin assignment order.
     var accentPalette: [Color] { [violet, coral, teal, amber] }
+
+    /// The accent color for a folder's or script's `accentIndex`.
+    func accent(at index: Int) -> Color { accentPalette[index % accentPalette.count] }
+
+    /// Text and icons on the `accent` gradient, in both themes.
+    var onAccent: Color { Color(red: 0.10, green: 0.06, blue: 0.07) }
 
     static let dark = Theme(
         bg: Color(red: 0.086, green: 0.078, blue: 0.106),
@@ -79,17 +84,20 @@ extension EnvironmentValues {
     }
 }
 
-/// Injects `theme` into the environment from the current color scheme every frame,
-/// so views just read `@Environment(\.theme)` instead of resolving it themselves.
-/// Also applies the Theme setting: `preferredColorScheme` sets the window's
-/// appearance, which then comes back down as this modifier's `colorScheme`.
+/// Puts `theme` into the environment from the current color scheme, so views read
+/// `@Environment(\.theme)` and do not resolve it themselves. Also applies the Theme
+/// setting to the app's appearance, which then comes back as `colorScheme`.
 struct ThemedRoot: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage(AppSettingsKey.theme) private var themeRaw = ThemePreference.dark.rawValue
+    @AppStorage(AppSettingsKey.theme) private var preference = ThemePreference.dark
     func body(content: Content) -> some View {
         content
             .environment(\.theme, Theme.resolved(for: colorScheme))
-            .preferredColorScheme((ThemePreference(rawValue: themeRaw) ?? .dark).colorScheme)
+            // Not `preferredColorScheme`: on macOS, `preferredColorScheme(nil)` does not
+            // return a window to the system appearance after Dark or Light, so "Auto"
+            // would not apply until the next launch.
+            .onAppear { NSApp.appearance = preference.appearance }
+            .onChange(of: preference) { _, preference in NSApp.appearance = preference.appearance }
     }
 }
 
@@ -113,7 +121,7 @@ struct GradientButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13.5, weight: .bold))
-            .foregroundColor(Color(red: 0.10, green: 0.06, blue: 0.07))
+            .foregroundStyle(theme.onAccent)
             .padding(.vertical, 11)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
@@ -130,7 +138,7 @@ struct NavItemStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13.5, weight: .semibold))
-            .foregroundColor(isActive ? theme.text : theme.textDim)
+            .foregroundStyle(isActive ? theme.text : theme.textDim)
             .padding(.vertical, 9)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,6 +146,7 @@ struct NavItemStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(isActive ? theme.text.opacity(0.09) : (configuration.isPressed ? theme.text.opacity(0.045) : .clear))
             )
+            .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
 
@@ -169,7 +178,24 @@ extension View {
     func cardBackground() -> some View { modifier(CardBackground()) }
 }
 
-/// A segmented pill toggle, matching the mockup's `.pill-toggle` / `.seg` component.
+/// The small-caps title of an inspector panel or sidebar section.
+struct PanelTitle: ViewModifier {
+    @Environment(\.theme) private var theme
+    var size: CGFloat = 11
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: .bold))
+            .tracking(0.6)
+            .foregroundStyle(theme.textFaint)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension View {
+    func panelTitle(size: CGFloat = 11) -> some View { modifier(PanelTitle(size: size)) }
+}
+
+/// A segmented control drawn as a row of pills.
 struct PillSegmentedControl<Option: Hashable & Identifiable>: View {
     @Environment(\.theme) private var theme
     let options: [Option]
@@ -184,7 +210,7 @@ struct PillSegmentedControl<Option: Hashable & Identifiable>: View {
                 } label: {
                     Text(label(option))
                         .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundColor(option == selection ? theme.text : theme.textFaint)
+                        .foregroundStyle(option == selection ? theme.text : theme.textFaint)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .padding(.vertical, 6)
@@ -196,6 +222,7 @@ struct PillSegmentedControl<Option: Hashable & Identifiable>: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(option == selection ? .isSelected : [])
             }
         }
         .padding(3)

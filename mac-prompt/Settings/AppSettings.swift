@@ -3,7 +3,7 @@
 //  mac-prompt
 //
 
-import SwiftUI
+import AppKit
 
 enum ThemePreference: String, CaseIterable, Identifiable, Hashable {
     case dark, light, auto
@@ -16,10 +16,10 @@ enum ThemePreference: String, CaseIterable, Identifiable, Hashable {
         }
     }
     /// nil follows the system appearance.
-    var colorScheme: ColorScheme? {
+    var appearance: NSAppearance? {
         switch self {
-        case .dark: return .dark
-        case .light: return .light
+        case .dark: return NSAppearance(named: .darkAqua)
+        case .light: return NSAppearance(named: .aqua)
         case .auto: return nil
         }
     }
@@ -77,11 +77,15 @@ enum AppSettingsKey {
     static let cameraDeviceID = "cameraDeviceID"
 }
 
-@MainActor
-struct AppSettingsDefaults {
-    static func registerDefaults() {
+enum AppSettingsDefaults {
+    /// The reading pace of a new script, in words per minute.
+    static let wpm = 150
+    /// The pace range of the editor's slider and of Settings > Default scroll speed.
+    static let wpmRange: ClosedRange<Double> = 80...240
+
+    static func register() {
         UserDefaults.standard.register(defaults: [
-            AppSettingsKey.defaultWPM: 150,
+            AppSettingsKey.defaultWPM: wpm,
             AppSettingsKey.defaultPrompterFontSize: PrompterFontSize.medium.rawValue,
             AppSettingsKey.theme: ThemePreference.dark.rawValue,
             AppSettingsKey.voiceTrackingEnabled: true,

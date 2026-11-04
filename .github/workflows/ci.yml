@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    name: Analyze and run unit tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # "-" signs ad hoc: CI has no developer certificate.
+      - name: Analyze
+        run: xcodebuild analyze -project mac-prompt.xcodeproj -scheme mac-prompt -destination 'platform=macOS' CODE_SIGN_IDENTITY=-
+      - name: Unit tests
+        run: xcodebuild test -project mac-prompt.xcodeproj -scheme mac-prompt -destination 'platform=macOS' -only-testing:mac-promptTests CODE_SIGN_IDENTITY=-

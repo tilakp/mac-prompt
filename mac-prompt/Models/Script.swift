@@ -27,13 +27,6 @@ enum LineSpacingStyle: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
-extension Notification.Name {
-    /// Posted on the main thread just before a script is permanently deleted, with the
-    /// script's `id` as the object. An open Prompter window for that script must drop
-    /// its reference first: reading a deleted SwiftData model can stop the app.
-    static let scriptWillBeDeleted = Notification.Name("scriptWillBeDeleted")
-}
-
 @Model
 final class Script {
     var id: UUID
@@ -59,7 +52,7 @@ final class Script {
         title: String = "Untitled Script",
         body: String = "",
         folder: Folder? = nil,
-        targetWPM: Int = 150,
+        targetWPM: Int = AppSettingsDefaults.wpm,
         editorFontSize: Double = 18,
         accentIndex: Int = 0
     ) {
@@ -80,7 +73,7 @@ final class Script {
 
     /// Word count of `body`, ignoring cue tokens like [PAUSE] and empty whitespace runs.
     var wordCount: Int {
-        Script.strippingCueTokens(from: body)
+        ScriptMarkup.removingCues(from: body)
             .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .count
     }
@@ -102,7 +95,7 @@ final class Script {
     /// A short plain-text preview of the body for library cards, with cue tokens and
     /// markdown emphasis markers stripped so the snippet reads naturally.
     var snippet: String {
-        let collapsed = Script.plainDisplayText(from: body)
+        let collapsed = ScriptMarkup.plainText(from: body)
             .components(separatedBy: .newlines)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
@@ -110,35 +103,6 @@ final class Script {
             return String(collapsed.prefix(140)) + "…"
         }
         return collapsed
-    }
-
-    static func strippingCueTokens(from text: String) -> String {
-        var result = text
-        for regex in CueToken.allRegexes {
-            result = regex.stringByReplacingMatches(
-                in: result,
-                range: NSRange(result.startIndex..., in: result),
-                withTemplate: ""
-            )
-        }
-        return result
-    }
-
-    /// `body` with cue tokens removed and `**bold**`/`*italic*` markers unwrapped down
-    /// to their inner text — used anywhere the script is shown as plain prose (library
-    /// snippets, the Prompter). Only text matched by the same regexes the editor's
-    /// syntax highlighter uses is touched, so a stray/unpaired `*` elsewhere in the
-    /// script (e.g. "5 * 3 = 15") is left alone instead of being silently deleted.
-    static func plainDisplayText(from text: String) -> String {
-        var result = strippingCueTokens(from: text)
-        for regex in [CueToken.boldRegex, CueToken.italicRegex] {
-            result = regex.stringByReplacingMatches(
-                in: result,
-                range: NSRange(result.startIndex..., in: result),
-                withTemplate: "$1"
-            )
-        }
-        return result
     }
 
     static func formatDuration(totalSeconds: Int) -> String {

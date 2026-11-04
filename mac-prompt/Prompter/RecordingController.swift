@@ -2,84 +2,102 @@
 //  RecordingController.swift
 //  mac-prompt
 //
-//  Owns the AVCaptureSession used for both the full-bleed camera passthrough
-//  background and recording. Recordings are written into the app's own sandboxed
-//  Documents directory, which is always writable inside the sandbox without any
-//  extra user-facing file picker or entitlement beyond camera/microphone access.
+//  Owns the capture session behind the Prompter's camera background and recordings.
+//  Recordings go to the app's sandboxed Documents folder, which needs no extra
+//  entitlement.
 
 // AVFoundation does not mark its types Sendable. They are used across threads only
 // through `sessionQueue`, which serializes all access.
 @preconcurrency import AVFoundation
+import Observation
 
 @MainActor
-final class RecordingController: NSObject, ObservableObject {
-    @Published private(set) var isRecording = false
-    @Published private(set) var elapsedSeconds = 0
-    @Published private(set) var isCameraReady = false
-    @Published private(set) var lastRecordingURL: URL?
+@Observable
+final class RecordingController: NSObject {
+    private(set) var isRecording = false
+    /// When the current recording started. Views show the elapsed time with
+    /// `Text(_:style: .timer)`, so no timer is needed.
+    private(set) var recordingStartDate: Date?
+    private(set) var isCameraReady = false
+    private(set) var lastRecordingURL: URL?
 
     let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
-    private var elapsedTimer: Timer?
-    private var recordingStartDate: Date?
 
     /// Every call that touches `session` or `movieOutput` runs on this one serial queue.
-    /// AVCaptureSession is not thread-safe, and its configuration and start/stop calls
-    /// block, so they must not run on the main thread or in the Swift concurrency pool.
-    /// The queue also keeps them in the order they were asked for: closing the Prompter
-    /// right after opening it cannot let `startRunning()` run after `stopRunning()`.
+    /// AVCaptureSession is not thread-safe, and its calls block, so they must not run on
+    /// the main thread. The queue also keeps them in order: closing the Prompter right
+    /// after opening it cannot let `startRunning()` run after `stopRunning()`.
     private let sessionQueue = DispatchQueue(label: "com.patelt.mac-prompt.capture-session")
-    /// True between `start()` and `stop()`, so an interruption that ends after `stop()`
-    /// does not mark the camera ready again.
-    private var wantsRunning = false
-    private var interruptionObservers: [NSObjectProtocol] = []
+    /// True between `start()` and `stop()`. Late events (a configuration that finishes,
+    /// an interruption that ends) must not mark a stopped camera ready.
+    @ObservationIgnored private var wantsRunning = false
+    /// Set by the one automatic restart after a runtime error, so an error that repeats
+    /// does not restart the session forever. `configure` clears it.
+    @ObservationIgnored private var didRestartAfterRuntimeError = false
+    @ObservationIgnored private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
-    static func requestCameraAccess() async -> Bool {
-        await AVCaptureDevice.requestAccess(for: .video)
+    /// All live controllers, so the app can finish their recordings before it quits.
+    private static let all = NSHashTable<RecordingController>.weakObjects()
+
+    /// Asks for the camera, then for the mic so recordings have sound. Returns whether
+    /// the camera is allowed. Without the mic, recordings have no sound track.
+    static func requestAccess() async -> Bool {
+        guard await AVCaptureDevice.requestAccess(for: .video) else { return false }
+        _ = await AVCaptureDevice.requestAccess(for: .audio)
+        return true
+    }
+
+    static var isAnyRecording: Bool { all.allObjects.contains(where: \.isRecording) }
+
+    /// Stops every recording and returns when all their files are complete.
+    static func finishAllRecordings() async {
+        for controller in all.allObjects { await controller.finishRecording() }
     }
 
     override init() {
         super.init()
+        Self.all.add(self)
         let center = NotificationCenter.default
-        // If another app (or another Prompter window) takes the camera, or the
-        // session hits a runtime error, reflect that in isCameraReady so the record
-        // button and camera background stop claiming readiness that no longer holds.
-        interruptionObservers = [
+        // `queue: .main` delivers these on the main thread.
+        observers = [
             center.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.isCameraReady = false }
-            },
-            center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.isCameraReady = false }
+                MainActor.assumeIsolated { self?.isCameraReady = false }
             },
             center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     guard let self, self.wantsRunning else { return }
                     self.isCameraReady = true
                 }
+            },
+            center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.restartAfterRuntimeError() }
             },
         ]
     }
 
     deinit {
-        let center = NotificationCenter.default
-        for observer in interruptionObservers { center.removeObserver(observer) }
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
-    /// (Re)configures the session's inputs/outputs for the given camera device
-    /// (nil = system default). Safe to call again to switch cameras. The work runs on
-    /// `sessionQueue`; `isCameraReady` changes when it is done.
+    /// (Re)configures the session for the given camera (nil = system default). Safe to
+    /// call again to switch cameras. `isCameraReady` changes when the work is done.
     func configure(deviceID: String?) {
+        didRestartAfterRuntimeError = false
         sessionQueue.async { [weak self, session, movieOutput] in
             let ready = Self.configureSession(session, movieOutput: movieOutput, deviceID: deviceID)
             Task { @MainActor in
-                // Callers call `start()` right after this. A `stop()` that came first
-                // must not be undone by a configuration that finishes later.
+                // Callers call `start()` right after this; a `stop()` that came between
+                // must not be undone by this late result.
                 guard let self else { return }
                 self.isCameraReady = ready && self.wantsRunning
             }
         }
     }
 
+    /// Returns true only if the session can record: it has the camera input and the
+    /// movie output. Recording without them raises an exception.
     private nonisolated static func configureSession(
         _ session: AVCaptureSession,
         movieOutput: AVCaptureMovieFileOutput,
@@ -90,21 +108,24 @@ final class RecordingController: NSObject, ObservableObject {
 
         for input in session.inputs { session.removeInput(input) }
         for output in session.outputs { session.removeOutput(output) }
-        session.sessionPreset = .high
+        if session.canSetSessionPreset(.high) { session.sessionPreset = .high }
 
         let device: AVCaptureDevice? = deviceID.flatMap(AVCaptureDevice.init(uniqueID:))
             ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .unspecified)
+        guard let device,
+              let input = try? AVCaptureDeviceInput(device: device),
+              session.canAddInput(input) else { return false }
+        session.addInput(input)
 
-        guard let device, let input = try? AVCaptureDeviceInput(device: device) else { return false }
-        if session.canAddInput(input) { session.addInput(input) }
-
+        // Optional: with no mic or no mic permission, recordings have no sound.
         if let audioDevice = AVCaptureDevice.default(for: .audio),
            let audioInput = try? AVCaptureDeviceInput(device: audioDevice),
            session.canAddInput(audioInput) {
             session.addInput(audioInput)
         }
 
-        if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
+        guard session.canAddOutput(movieOutput) else { return false }
+        session.addOutput(movieOutput)
         return true
     }
 
@@ -114,37 +135,47 @@ final class RecordingController: NSObject, ObservableObject {
     }
 
     func stop() {
-        if isRecording { stopRecording() }
+        stopRecording()
         wantsRunning = false
-        // A stopped session cannot record. Without this, R with passthrough switched
-        // off would start a recording that fails at once. `configure` makes it ready again.
+        // A stopped session cannot record. `configure` makes it ready again.
         isCameraReady = false
         sessionQueue.async { [session] in session.stopRunning() }
     }
 
-    func startRecording() {
-        guard !isRecording, isCameraReady else { return }
-        let url = RecordingController.newRecordingURL()
-        sessionQueue.async { [movieOutput] in
-            movieOutput.startRecording(to: url, recordingDelegate: self)
-        }
-        isRecording = true
-        elapsedSeconds = 0
-        let startDate = Date.now
-        recordingStartDate = startDate
-        // Computed from the start date, so it does not drift. `.common` mode keeps it
-        // updating while a menu is open.
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+    /// Restarts the session one time (e.g. after media services reset or the camera
+    /// was reconnected). If the error comes back, the camera stays off.
+    private func restartAfterRuntimeError() {
+        isCameraReady = false
+        guard wantsRunning, !didRestartAfterRuntimeError else { return }
+        didRestartAfterRuntimeError = true
+        sessionQueue.async { [weak self, session] in
+            session.startRunning()
+            let running = session.isRunning
             Task { @MainActor in
-                guard let self, let start = self.recordingStartDate else { return }
-                // `@Published` notifies on every assignment, even of an equal value,
-                // and each notification redraws the whole Prompter view.
-                let seconds = Int(Date.now.timeIntervalSince(start))
-                if seconds != self.elapsedSeconds { self.elapsedSeconds = seconds }
+                guard let self, running, self.wantsRunning else { return }
+                self.isCameraReady = true
             }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        elapsedTimer = timer
+    }
+
+    func toggleRecording() {
+        isRecording ? stopRecording() : startRecording()
+    }
+
+    func startRecording() {
+        guard !isRecording, isCameraReady else { return }
+        let url = Self.newRecordingURL()
+        isRecording = true
+        recordingStartDate = .now
+        sessionQueue.async { [movieOutput] in
+            // The camera can go away after `isCameraReady` was set (e.g. unplugged).
+            // Recording with no active video connection raises an exception.
+            guard movieOutput.connection(with: .video)?.isActive == true else {
+                Task { @MainActor in self.recordingDidEnd(savedTo: nil) }
+                return
+            }
+            movieOutput.startRecording(to: url, recordingDelegate: self)
+        }
     }
 
     func stopRecording() {
@@ -152,7 +183,22 @@ final class RecordingController: NSObject, ObservableObject {
         sessionQueue.async { [movieOutput] in movieOutput.stopRecording() }
     }
 
-    var elapsedTimeText: String { Script.formatDuration(totalSeconds: elapsedSeconds) }
+    /// Stops the recording and returns when its file is complete.
+    func finishRecording() async {
+        guard isRecording else { return }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
+            stopRecording()
+        }
+    }
+
+    private func recordingDidEnd(savedTo url: URL?) {
+        isRecording = false
+        recordingStartDate = nil
+        if let url { lastRecordingURL = url }
+        for waiter in finishWaiters { waiter.resume() }
+        finishWaiters = []
+    }
 
     static func recordingsDirectory() -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -186,17 +232,9 @@ extension RecordingController: AVCaptureFileOutputRecordingDelegate {
         error: Error?
     ) {
         // AVFoundation can report an error for a file that still finished correctly
-        // (e.g. the session stopped); it then sets this key, and the file is usable.
+        // (e.g. the session stopped). It then sets this key, and the file is usable.
         let finished = error == nil
             || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
-        Task { @MainActor in
-            self.isRecording = false
-            self.elapsedTimer?.invalidate()
-            self.elapsedTimer = nil
-            self.recordingStartDate = nil
-            if finished {
-                self.lastRecordingURL = outputFileURL
-            }
-        }
+        Task { @MainActor in self.recordingDidEnd(savedTo: finished ? outputFileURL : nil) }
     }
 }

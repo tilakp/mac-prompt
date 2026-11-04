@@ -2,9 +2,8 @@
 //  PrompterKeyCatcherView.swift
 //  mac-prompt
 //
-//  Generalized version of the original ContentView's single-key KeyboardShortcutView:
-//  SwiftUI on macOS has no built-in bare-key shortcuts (Space, plain arrows) scoped to
-//  a view, so this captures them at the NSView level via first-responder key events.
+//  The Prompter's keys (Space, arrows, R, M, Esc). SwiftUI on macOS has no shortcuts
+//  for keys without a modifier, so an NSView takes the key events as first responder.
 
 import AppKit
 import SwiftUI

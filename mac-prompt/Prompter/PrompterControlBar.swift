@@ -2,8 +2,8 @@
 //  PrompterControlBar.swift
 //  mac-prompt
 //
-//  The floating glass pill from the Prompter mockup: play/pause, speed, font size,
-//  mirror flip, a live voice-tracking indicator, record, and close.
+//  The floating control bar of the Prompter: play/pause, speed, font size, mirror
+//  flip, the voice-tracking indicator, record, and close.
 
 import AppKit
 import SwiftUI
@@ -12,7 +12,7 @@ struct PrompterControlBar: View {
     @Environment(\.theme) private var theme
     let engine: TeleprompterEngine
     let voiceTracker: VoiceTracker
-    @ObservedObject var recorder: RecordingController
+    let recorder: RecordingController
     var voiceTrackingEnabled: Bool
     var cameraEnabled: Bool
     var onClose: () -> Void
@@ -21,17 +21,22 @@ struct PrompterControlBar: View {
         HStack(spacing: 8) {
             playPauseButton
             separator
-            smallButton(systemImage: "minus") { engine.adjustSpeedMultiplier(by: -0.1) }
+            iconButton("Slower", systemImage: "minus") { engine.adjustSpeedMultiplier(by: -0.1) }
             Text(engine.speedMultiplierText)
                 .font(.system(size: 13, weight: .bold))
-                .foregroundColor(theme.text)
+                .foregroundStyle(theme.text)
                 .frame(width: 46)
-            smallButton(systemImage: "plus") { engine.adjustSpeedMultiplier(by: 0.1) }
+                .accessibilityLabel("Speed \(engine.speedMultiplierText)")
+            iconButton("Faster", systemImage: "plus") { engine.adjustSpeedMultiplier(by: 0.1) }
             separator
-            smallButton(label: "A–") { engine.adjustFontSize(by: -4) }
-            smallButton(label: "A+") { engine.adjustFontSize(by: 4) }
+            textButton("A–", label: "Smaller text") { engine.adjustFontSize(by: -4) }
+            textButton("A+", label: "Larger text") { engine.adjustFontSize(by: 4) }
             separator
-            smallButton(systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right", isActive: engine.mirrored) {
+            iconButton(
+                "Mirror flip",
+                systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right",
+                isActive: engine.mirrored
+            ) {
                 engine.mirrored.toggle()
             }
 
@@ -44,15 +49,14 @@ struct PrompterControlBar: View {
                 Spacer().frame(width: 12)
                 recordButton
                 if let url = recorder.lastRecordingURL, !recorder.isRecording {
-                    smallButton(systemImage: "folder") {
+                    iconButton("Reveal recording in Finder", systemImage: "folder") {
                         NSWorkspace.shared.activateFileViewerSelecting([url])
                     }
-                    .help("Reveal recording in Finder")
                 }
             }
 
             separator
-            smallButton(systemImage: "xmark") { onClose() }
+            iconButton("Close Prompter", systemImage: "xmark", action: onClose)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -68,30 +72,42 @@ struct PrompterControlBar: View {
                 .font(.system(size: 16, weight: .bold))
                 .frame(width: 44, height: 44)
                 .background(theme.accent, in: Circle())
-                .foregroundColor(Color(red: 0.10, green: 0.06, blue: 0.07))
+                .foregroundStyle(theme.onAccent)
         }
         .buttonStyle(.plain)
+        .help(engine.isPlaying ? "Pause" : "Play")
+        .accessibilityLabel(engine.isPlaying ? "Pause" : "Play")
     }
 
-    private func smallButton(systemImage: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func iconButton(
+        _ label: String,
+        systemImage: String,
+        isActive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .foregroundColor(isActive ? theme.text : theme.textDim)
+                .foregroundStyle(isActive ? theme.text : theme.textDim)
                 .background(isActive ? theme.text.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
-    private func smallButton(label: String, action: @escaping () -> Void) -> some View {
+    private func textButton(_ title: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
+            Text(title)
                 .font(.heading(13))
                 .frame(width: 36, height: 36)
-                .foregroundColor(theme.textDim)
+                .foregroundStyle(theme.textDim)
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 
     private var separator: some View {
@@ -108,11 +124,12 @@ struct PrompterControlBar: View {
                     Text("Retry")
                 }
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(theme.amber)
+                .foregroundStyle(theme.amber)
                 .padding(.horizontal, 4)
             }
             .buttonStyle(.plain)
-            .help("Speech recognition stopped after repeated errors. Click to try again.")
+            .help("Voice tracking stopped because speech recognition failed. Click to try again.")
+            .accessibilityLabel("Retry voice tracking")
         } else {
             voiceTrackingLevel
         }
@@ -122,7 +139,7 @@ struct PrompterControlBar: View {
         HStack(spacing: 8) {
             Image(systemName: "waveform")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(voiceTracker.isListening ? theme.teal : theme.textFaint)
+                .foregroundStyle(voiceTracker.isListening ? theme.teal : theme.textFaint)
             HStack(alignment: .bottom, spacing: 2.5) {
                 ForEach(0..<4, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1.5)
@@ -134,9 +151,11 @@ struct PrompterControlBar: View {
             .frame(height: 15, alignment: .bottom)
             Text(voiceTracker.isListening ? "Tracking" : "Off")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(voiceTracker.isListening ? theme.teal : theme.textFaint)
+                .foregroundStyle(voiceTracker.isListening ? theme.teal : theme.textFaint)
         }
         .padding(.horizontal, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Voice tracking \(voiceTracker.isListening ? "on" : "off")")
     }
 
     private func barHeight(for index: Int) -> CGFloat {
@@ -146,9 +165,7 @@ struct PrompterControlBar: View {
     }
 
     private var recordButton: some View {
-        Button {
-            recorder.isRecording ? recorder.stopRecording() : recorder.startRecording()
-        } label: {
+        Button(action: recorder.toggleRecording) {
             HStack(spacing: 9) {
                 ZStack {
                     Circle().fill(theme.rec).frame(width: 36, height: 36)
@@ -160,11 +177,11 @@ struct PrompterControlBar: View {
                         Circle().fill(.white).frame(width: 12, height: 12)
                     }
                 }
-                if recorder.isRecording {
-                    Text(recorder.elapsedTimeText)
+                if let start = recorder.recordingStartDate {
+                    Text(start, style: .timer)
                         .font(.system(size: 13, weight: .bold))
                         .monospacedDigit()
-                        .foregroundColor(theme.text)
+                        .foregroundStyle(theme.text)
                 }
             }
             .padding(.trailing, recorder.isRecording ? 14 : 0)
@@ -175,5 +192,7 @@ struct PrompterControlBar: View {
         }
         .buttonStyle(.plain)
         .disabled(!recorder.isCameraReady)
+        .help(recorder.isRecording ? "Stop recording" : "Start recording")
+        .accessibilityLabel(recorder.isRecording ? "Stop recording" : "Start recording")
     }
 }

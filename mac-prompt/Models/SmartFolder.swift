@@ -5,8 +5,8 @@
 
 import Foundation
 
-/// Built-in sidebar sections shown above user-created folders. Not persisted —
-/// membership is computed from `Script` properties at query time.
+/// Built-in sidebar sections above the user's folders. They are not stored: their
+/// scripts are found from `Script` properties.
 enum SmartFolder: String, CaseIterable, Identifiable {
     case library = "Library"
     case recent = "Recent"

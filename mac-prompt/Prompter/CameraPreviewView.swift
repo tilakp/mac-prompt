@@ -6,14 +6,12 @@
 import AVFoundation
 import SwiftUI
 
-/// Renders a live `AVCaptureSession` full-bleed, for the Prompter's camera passthrough
-/// background. Purely presentational — session lifecycle lives in RecordingController.
+/// Shows a live `AVCaptureSession` as the Prompter's full-window camera background.
+/// `RecordingController` starts and stops the session.
 ///
-/// Always mirrors like a normal self-view (front webcams read naturally mirrored, as
-/// in a mirror). The separate "Mirror flip" control (M) in Prompter flips the *entire*
-/// composed view — camera, text, and guide band together — for use with physical
-/// teleprompter beam-splitter rigs that need the whole display reversed; see
-/// `PrompterView`.
+/// The image is always mirrored, like a mirror or a video call self-view. The Prompter's
+/// "Mirror flip" (M) is different: it flips the whole window (camera, text and guide
+/// band) for a beam-splitter teleprompter rig.
 struct CameraPreviewView: NSViewRepresentable {
     let session: AVCaptureSession
     /// The preview layer's connection exists only after the session gets a camera

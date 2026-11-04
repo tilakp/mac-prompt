@@ -2,20 +2,12 @@
 //  CueToken.swift
 //  mac-prompt
 //
-//  Inline markup recognized in a script's plain-text body. Cue tokens are literal
-//  bracketed substrings (e.g. "[PAUSE]") rather than persisted rich-text attributes,
-//  so scripts stay portable plain text; both the editor's syntax highlighting and the
-//  library snippet/word-count logic parse them with the same regexes.
+//  The cues the editor toolbar inserts. `ScriptMarkup.cueRegex` recognizes them.
 
-import Foundation
+enum CueToken {
+    case pause, emphasis, faster, slower
 
-enum CueToken: String, CaseIterable {
-    case pause = "PAUSE"
-    case emphasis = "EMPHASIS"
-    case faster = "FASTER"
-    case slower = "SLOWER"
-
-    var displayText: String {
+    var text: String {
         switch self {
         case .pause: return "[PAUSE]"
         case .emphasis: return "[EMPHASIS]"
@@ -23,28 +15,4 @@ enum CueToken: String, CaseIterable {
         case .slower: return "«« SLOWER"
         }
     }
-
-    /// The exact literal token inserted into a script's body by the editor toolbar.
-    var insertionText: String { displayText }
-
-    static let cueRegex: NSRegularExpression = {
-        // Matches "[PAUSE]", "[EMPHASIS]", "»» FASTER", "«« SLOWER". A cue is on one
-        // line (like bold and italic), so the editor can restyle edited lines only.
-        let pattern = #"\[(PAUSE|EMPHASIS)\]|»»[ \t]*FASTER|««[ \t]*SLOWER"#
-        return try! NSRegularExpression(pattern: pattern)
-    }()
-
-    static let boldRegex: NSRegularExpression = {
-        try! NSRegularExpression(pattern: #"\*\*([^*\n]+)\*\*"#)
-    }()
-
-    static let italicRegex: NSRegularExpression = {
-        // Single-asterisk emphasis that isn't part of a "**bold**" run. The text must
-        // touch both markers, so arithmetic such as "5 * 3 * 2" is not italic.
-        try! NSRegularExpression(pattern: #"(?<!\*)\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?!\*)"#)
-    }()
-
-    /// All regexes whose matches should be removed entirely when computing word
-    /// counts / snippets (cue tokens carry no spoken words of their own).
-    static let allRegexes: [NSRegularExpression] = [cueRegex]
 }

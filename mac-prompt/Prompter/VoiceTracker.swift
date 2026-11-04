@@ -2,13 +2,10 @@
 //  VoiceTracker.swift
 //  mac-prompt
 //
-//  Scoped version of "voice tracking": this does NOT attempt word-level alignment
-//  (scrubbing the scroll position to the exact word being spoken), which is a much
-//  harder, research-grade problem. Instead it runs live on-device speech recognition,
-//  measures the presenter's words-per-minute over the last 10 seconds, and smoothly
-//  nudges TeleprompterEngine.speedMultiplier toward that measured rate. It also reports mic RMS level for the control bar's waveform.
-//  `@Observable`, so the ~20Hz `micLevel` updates re-render only the control bar's
-//  waveform, not the whole Prompter view.
+//  Matches the scroll speed to the reader's speaking pace. It does not align the text
+//  to the spoken words. It runs live speech recognition, measures words per minute
+//  over the last 10 seconds, and moves `TeleprompterEngine.speedMultiplier` toward
+//  that pace. It also reports the mic level for the control bar's waveform.
 
 import AVFoundation
 import Observation
@@ -20,8 +17,8 @@ final class VoiceTracker {
     private(set) var isListening = false
     private(set) var micLevel: Double = 0
     private(set) var measuredWPM: Double?
-    /// True when tracking stopped after too many quick failures. The control bar then
-    /// offers "Retry" (`retry(engine:)`).
+    /// True when tracking could not start or stopped after repeated quick failures.
+    /// The control bar then offers "Retry" (`retry(engine:)`).
     private(set) var didFail = false
 
     var sensitivity: VoiceTrackingSensitivity = .balanced
@@ -31,22 +28,24 @@ final class VoiceTracker {
     @ObservationIgnored private var recognizer: SFSpeechRecognizer?
     @ObservationIgnored private var task: SFSpeechRecognitionTask?
     @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
-    /// Incremented on each `start()`, so callbacks from an older recognition task are ignored.
+    /// Incremented on each session start and on `stop()`, so callbacks from an older
+    /// recognition task are ignored.
     @ObservationIgnored private var sessionID = 0
+    /// A delayed restart after a quick failure. `stop()` and `start(engine:)` cancel it.
+    @ObservationIgnored private var restartTask: Task<Void, Never>?
+    /// Observes input device changes, which stop the audio engine.
+    @ObservationIgnored private var configurationObserver: NSObjectProtocol?
 
-    /// Touched only from the audio tap's render-thread callback below (never from
-    /// MainActor code), which AVAudioEngine always invokes serially on the same
-    /// thread — safe without extra synchronization. Throttles how often the tap
-    /// hops to MainActor to publish `micLevel`: the callback fires ~40-50x/sec for
-    /// the whole session (30-60+ min), but the control bar only animates 4 bars, so
-    /// there's no UX benefit to updating faster than ~20Hz — just actor-hop overhead.
+    /// Used only on the audio thread, which calls the tap serially. Limits `micLevel`
+    /// updates to 20 per second: the tap runs about 45 times per second, and each
+    /// update is a hop to the main actor.
     @ObservationIgnored nonisolated(unsafe) private var lastLevelUpdate = Date.distantPast
     @ObservationIgnored private var sessionStartDate: Date?
     /// (time, words recognized so far) for each result in the current session, kept
     /// back to the WPM window. See `windowedWPM(samples:)`.
     @ObservationIgnored private var wpmSamples: [(Date, Int)] = []
     @ObservationIgnored private var lastAdjustDate: Date?
-    /// Sessions in a row that ended within 2 seconds. Some errors (no on-device model,
+    /// Sessions in a row that failed within 2 seconds. Some errors (no on-device model,
     /// Dictation off, recognizer busy) occur again at once on each new session.
     @ObservationIgnored private var quickFailures = 0
 
@@ -65,30 +64,46 @@ final class VoiceTracker {
 
     func start(engine: TeleprompterEngine) {
         guard !isListening else { return }
+        restartTask?.cancel()
+        didFail = !startSession(engine: engine)
+    }
+
+    func stop() {
+        restartTask?.cancel()
+        restartTask = nil
+        teardown()
+        sessionID += 1
+        quickFailures = 0
+        didFail = false
+    }
+
+    /// Starts again after `didFail`.
+    func retry(engine: TeleprompterEngine) {
+        stop()
+        start(engine: engine)
+    }
+
+    /// Returns false if the session cannot start: no recognizer for the language, no
+    /// input device, or the audio engine fails.
+    private func startSession(engine: TeleprompterEngine) -> Bool {
         // The user's own language first; nil means it is not supported, so fall back to en-US.
         let recognizer = self.recognizer ?? SFSpeechRecognizer() ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         self.recognizer = recognizer
-        guard let recognizer, recognizer.isAvailable else { return }
+        guard let recognizer, recognizer.isAvailable else { return false }
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         // With no input device (e.g. a Mac mini with no mic) the format has a zero
         // sample rate, and installTap raises an Objective-C exception that crashes the app.
-        guard format.sampleRate > 0, format.channelCount > 0 else { return }
+        guard format.sampleRate > 0, format.channelCount > 0 else { return false }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
-        self.request = request
-        let startDate = Date.now
-        sessionStartDate = startDate
-        // Silence before the first word counts, but only inside the WPM window.
-        wpmSamples = [(startDate, 0)]
-        lastAdjustDate = nil
 
         inputNode.removeTap(onBus: 0)
-        // `@Sendable`: this runs on the audio render thread. Without it the closure is
-        // inferred to be main-actor isolated, which stops the app in Swift 6 mode.
+        // `@Sendable`: this runs on the audio thread. Without it the closure is inferred
+        // to be main-actor isolated, which stops the app in Swift 6 mode.
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable [weak self] buffer, _ in
             request.append(buffer)
             guard let self else { return }
@@ -104,17 +119,34 @@ final class VoiceTracker {
             try audioEngine.start()
         } catch {
             inputNode.removeTap(onBus: 0)
-            return
+            return false
         }
+
+        self.request = request
+        let startDate = Date.now
+        sessionStartDate = startDate
+        // Silence before the first word counts, but only inside the WPM window.
+        wpmSamples = [(startDate, 0)]
+        lastAdjustDate = nil
         isListening = true
         sessionID += 1
         let session = sessionID
 
+        // A new mic or headset changes the input format and stops the audio engine,
+        // with no error from the recognizer. Start a new session on the new input.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: .main
+        ) { [weak self, weak engine] _ in
+            MainActor.assumeIsolated {
+                guard let self, let engine else { return }
+                self.restart(engine: engine)
+            }
+        }
+
         task = recognizer.recognitionTask(with: request) { @Sendable [weak self, weak engine] result, error in
             Task { @MainActor [weak self, weak engine] in
-                // A cancelled task (from stop() or restart()) still calls this handler with
-                // an error. Without this check, that late callback restarts the new session,
-                // which cancels it in turn, and so on in a loop.
+                // A cancelled task still calls this handler with an error. Without this
+                // check, that late callback would restart the new session.
                 guard let self, let engine, session == self.sessionID else { return }
                 if let result {
                     self.handle(result: result, engine: engine)
@@ -124,23 +156,14 @@ final class VoiceTracker {
                 }
             }
         }
-    }
-
-    func stop() {
-        teardown()
-        // Cancels a restart that is waiting (see `restart`) and ignores late callbacks.
-        sessionID += 1
-        quickFailures = 0
-        didFail = false
-    }
-
-    /// Starts again after `didFail`.
-    func retry(engine: TeleprompterEngine) {
-        stop()
-        start(engine: engine)
+        return true
     }
 
     private func teardown() {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        configurationObserver = nil
         audioEngine.inputNode.removeTap(onBus: 0)
         if audioEngine.isRunning { audioEngine.stop() }
         request?.endAudio()
@@ -155,32 +178,34 @@ final class VoiceTracker {
         measuredWPM = nil
     }
 
-    /// Live speech recognition sessions time out after roughly a minute; transparently
-    /// start a fresh one so tracking keeps running through a long read.
-    /// A session that fails quickly is restarted after a growing delay, and after
-    /// `maxQuickFailures` in a row tracking stops (the indicator then shows "Off").
-    /// Without this, an error that occurs at once on each new session restarts the
-    /// audio engine and recognizer in a tight loop.
+    /// Recognition sessions time out after about a minute, so a session that ends is
+    /// started again and tracking continues through a long read.
     private func restart(engine: TeleprompterEngine) {
         guard isListening else { return }
         let lasted = sessionStartDate.map { Date.now.timeIntervalSince($0) } ?? 0
-        quickFailures = lasted < 2 ? quickFailures + 1 : 0
         teardown()
-        if quickFailures == 0 {
-            start(engine: engine)
-            return
-        }
+        startAgain(engine: engine, afterQuickFailure: lasted < 2)
+    }
+
+    /// A quick failure (a session that lasted under 2 seconds, or one that could not
+    /// start) is retried after a growing delay; after `maxQuickFailures` in a row,
+    /// `didFail` is set. Without the delay, an error that occurs at once on each new
+    /// session restarts the audio engine and recognizer in a tight loop.
+    private func startAgain(engine: TeleprompterEngine, afterQuickFailure: Bool) {
+        quickFailures = afterQuickFailure ? quickFailures + 1 : 0
         guard quickFailures < Self.maxQuickFailures else {
             didFail = true
             return
         }
-        let pending = sessionID
+        guard quickFailures > 0 else {
+            if !startSession(engine: engine) { startAgain(engine: engine, afterQuickFailure: true) }
+            return
+        }
         let delay = 0.5 * Double(quickFailures)
-        Task { [weak self, weak engine] in
+        restartTask = Task { [weak self, weak engine] in
             try? await Task.sleep(for: .seconds(delay))
-            // `stop()` or a new `start()` during the delay changes `sessionID`.
-            guard let self, let engine, self.sessionID == pending, !self.isListening else { return }
-            self.start(engine: engine)
+            guard let self, let engine, !Task.isCancelled, !self.isListening else { return }
+            if !self.startSession(engine: engine) { self.startAgain(engine: engine, afterQuickFailure: true) }
         }
     }
 

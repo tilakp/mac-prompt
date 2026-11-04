@@ -30,11 +30,11 @@ struct SidebarView: View {
                     .overlay(
                         Image(systemName: "text.alignleft")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(Color(red: 0.10, green: 0.06, blue: 0.07))
+                            .foregroundStyle(theme.onAccent)
                     )
                 Text("Prompt")
                     .font(.heading(16.5))
-                    .foregroundColor(theme.text)
+                    .foregroundStyle(theme.text)
             }
             .padding(.horizontal, 4)
 
@@ -57,19 +57,18 @@ struct SidebarView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text("FOLDERS")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .tracking(0.6)
-                        .foregroundColor(theme.textFaint)
+                    Text("FOLDERS").panelTitle(size: 10.5)
                     Spacer()
                     Button {
                         isPresentingNewFolder = true
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(theme.textFaint)
+                            .foregroundStyle(theme.textFaint)
                     }
                     .buttonStyle(.plain)
+                    .help("New Folder")
+                    .accessibilityLabel("New Folder")
                 }
                 .padding(.horizontal, 12)
 
@@ -80,7 +79,7 @@ struct SidebarView: View {
                         Label {
                             Text(folder.name)
                         } icon: {
-                            Circle().fill(theme.accentPalette[folder.accentIndex % theme.accentPalette.count]).frame(width: 7, height: 7)
+                            Circle().fill(theme.accent(at: folder.accentIndex)).frame(width: 7, height: 7)
                         }
                     }
                     .buttonStyle(NavItemStyle(isActive: selection == .folder(folder.id)))
@@ -98,7 +97,7 @@ struct SidebarView: View {
 
             Text("\(scriptCount) script\(scriptCount == 1 ? "" : "s")")
                 .font(.system(size: 11))
-                .foregroundColor(theme.textFaint)
+                .foregroundStyle(theme.textFaint)
                 .padding(.horizontal, 4)
         }
         .padding(14)
@@ -144,8 +143,12 @@ struct SidebarView: View {
 
     private func deleteFolder(_ folder: Folder) {
         if selection == .folder(folder.id) { selection = .smart(.library) }
-        // The relationship's delete rule is .nullify: the scripts stay, with no folder.
+        // The scripts stay, with no folder. The `.nullify` delete rule does the same,
+        // but only when the context saves; until then an open editor or card would
+        // read the deleted folder, which can stop the app.
+        for script in folder.scripts { script.folder = nil }
         modelContext.delete(folder)
+        try? modelContext.save()
     }
 
     private func createFolder() {

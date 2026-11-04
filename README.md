@@ -1,6 +1,6 @@
 # Prompt
 
-![App Icon](mac-prompt/AppIcon.appiconset/icon_128x128.png)
+![App Icon](mac-prompt/Assets.xcassets/AppIcon.appiconset/icon_128x128.png)
 
 Prompt is an open-source teleprompter for macOS, built with SwiftUI and SwiftData. It manages a
 library of scripts across folders, gives each script a rich editing view with pacing cues, and

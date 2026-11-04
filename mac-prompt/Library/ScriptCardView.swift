@@ -9,10 +9,9 @@ struct ScriptCardView: View {
     @Environment(\.theme) private var theme
     let script: Script
     var onOpen: () -> Void
-    var onToggleFavorite: () -> Void
     var onDelete: () -> Void
 
-    private var accentColor: Color { theme.accentPalette[script.accentIndex % theme.accentPalette.count] }
+    private var accentColor: Color { theme.accent(at: script.accentIndex) }
 
     var body: some View {
         let wordCount = script.wordCount
@@ -25,36 +24,34 @@ struct ScriptCardView: View {
                         Circle().fill(accentColor).frame(width: 7, height: 7)
                         Text(script.folder?.name ?? "No Folder")
                             .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(theme.textDim)
+                            .foregroundStyle(theme.textDim)
                     }
                     Spacer()
                     if script.isFavorite {
                         Image(systemName: "star.fill")
                             .font(.system(size: 11))
-                            .foregroundColor(theme.amber)
+                            .foregroundStyle(theme.amber)
                     }
                     Menu {
-                        if script.isTrashed {
-                            Button("Put Back") { script.isTrashed = false }
-                        }
-                        Button(script.isFavorite ? "Remove from Favorites" : "Add to Favorites", action: onToggleFavorite)
-                        Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
+                        ScriptMenuItems(script: script, onDelete: onDelete)
                     } label: {
                         Image(systemName: "ellipsis")
-                            .foregroundColor(theme.textFaint)
+                            .foregroundStyle(theme.textFaint)
                     }
                     .menuStyle(.borderlessButton)
                     .frame(width: 18)
+                    .help("More")
+                    .accessibilityLabel("More actions")
                 }
 
                 Text(script.title)
                     .font(.heading(15.5))
-                    .foregroundColor(theme.text)
+                    .foregroundStyle(theme.text)
                     .lineLimit(2)
 
                 Text(script.snippet.isEmpty ? "Empty script" : script.snippet)
                     .font(.system(size: 12.5))
-                    .foregroundColor(theme.textDim)
+                    .foregroundStyle(theme.textDim)
                     .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -70,7 +67,7 @@ struct ScriptCardView: View {
                     Text(script.editedAt.formatted(.relative(presentation: .named)))
                 }
                 .font(.system(size: 11))
-                .foregroundColor(theme.textFaint)
+                .foregroundStyle(theme.textFaint)
             }
             .padding(16)
         }
@@ -78,12 +75,22 @@ struct ScriptCardView: View {
         .cardBackground()
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
-        .contextMenu {
-            if script.isTrashed {
-                Button("Put Back") { script.isTrashed = false }
-            }
-            Button(script.isFavorite ? "Remove from Favorites" : "Add to Favorites", action: onToggleFavorite)
-            Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
+        .accessibilityAddTraits(.isButton)
+        .contextMenu { ScriptMenuItems(script: script, onDelete: onDelete) }
+    }
+}
+
+/// The actions for one script: its card's menu and the context menus of its card and
+/// list row.
+struct ScriptMenuItems: View {
+    let script: Script
+    var onDelete: () -> Void
+
+    var body: some View {
+        if script.isTrashed {
+            Button("Put Back") { script.isTrashed = false }
         }
+        Button(script.isFavorite ? "Remove from Favorites" : "Add to Favorites") { script.isFavorite.toggle() }
+        Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
     }
 }
