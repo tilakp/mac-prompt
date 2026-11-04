@@ -13,6 +13,15 @@ final class ScriptTests: XCTestCase {
         XCTAssertEqual(script.wordCount, 7)
     }
 
+    func testCueWithoutSpacesDoesNotJoinWords() {
+        XCTAssertEqual(Script(body: "Hello[PAUSE]world").wordCount, 2)
+    }
+
+    func testSnippetCutsLongBodiesAt140Characters() {
+        let script = Script(body: String(repeating: "a", count: 200))
+        XCTAssertEqual(script.snippet, String(repeating: "a", count: 140) + "…")
+    }
+
     func testWordCountOfEmptyBody() {
         let script = Script(body: "")
         XCTAssertEqual(script.wordCount, 0)
@@ -36,16 +45,15 @@ final class ScriptTests: XCTestCase {
     }
 
     func testPlainDisplayTextPreservesUnmatchedAsterisks() {
-        // A lone/unpaired "*" isn't matched bold/italic markup, so it must survive —
-        // regression test for a bug where every literal "*" was deleted outright.
-        let text = Script.plainDisplayText(from: "5 * 3 = 15, and **this** is bold.")
+        // A "*" that is not part of bold or italic markup must stay in the text.
+        let text = ScriptMarkup.plainText(from: "5 * 3 = 15, and **this** is bold.")
         XCTAssertEqual(text, "5 * 3 = 15, and this is bold.")
     }
 
     func testPlainDisplayTextKeepsSpacedAsterisks() {
         // "* 3 *" has spaces inside the markers, so it is arithmetic, not italic markup.
-        XCTAssertEqual(Script.plainDisplayText(from: "5 * 3 * 2"), "5 * 3 * 2")
-        XCTAssertEqual(Script.plainDisplayText(from: "a *b* c"), "a b c")
+        XCTAssertEqual(ScriptMarkup.plainText(from: "5 * 3 * 2"), "5 * 3 * 2")
+        XCTAssertEqual(ScriptMarkup.plainText(from: "a *b* c"), "a b c")
     }
 
     func testEstimatedDurationFromWordCount() {
@@ -59,35 +67,42 @@ final class ScriptTests: XCTestCase {
     }
 }
 
-final class CueTokenTests: XCTestCase {
+final class ScriptMarkupTests: XCTestCase {
     func testCueRegexMatchesAllTokenForms() {
         let text = "[PAUSE] then [EMPHASIS] then »» FASTER then «« SLOWER"
-        let matches = CueToken.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let matches = ScriptMarkup.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         XCTAssertEqual(matches.count, 4)
     }
 
     func testCueRegexDoesNotSpanLines() {
         // A cue is one line. "»»" on one line and "FASTER" on the next are two words.
         let text = "»»\n\nFASTER and »» FASTER"
-        let matches = CueToken.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let matches = ScriptMarkup.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         XCTAssertEqual(matches.count, 1)
     }
 
     func testCueRegexIgnoresPlainBrackets() {
         let text = "This is [not a cue] at all"
-        let matches = CueToken.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let matches = ScriptMarkup.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         XCTAssertTrue(matches.isEmpty)
     }
 
     func testBoldRegexMatchesDoubleAsterisks() {
         let text = "This is **bold** text"
-        let matches = CueToken.boldRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let matches = ScriptMarkup.boldRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         XCTAssertEqual(matches.count, 1)
     }
 
     func testItalicRegexDoesNotMatchInsideBold() {
         let text = "**bold** and *italic*"
-        let italicMatches = CueToken.italicRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        let italicMatches = ScriptMarkup.italicRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         XCTAssertEqual(italicMatches.count, 1)
+    }
+}
+
+final class CueTextControllerTests: XCTestCase {
+    func testWrapKeepsMarkersNextToTheText() {
+        XCTAssertEqual(CueTextController.wrap("  hello there ", with: "**"), "  **hello there** ")
+        XCTAssertEqual(CueTextController.wrap("   ", with: "*"), "   ")
     }
 }

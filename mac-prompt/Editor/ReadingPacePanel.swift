@@ -10,30 +10,25 @@ struct ReadingPacePanel: View {
     @Bindable var script: Script
     let wordCount: Int
 
-    /// The same range as Settings > Default scroll speed, so a new script's default
-    /// pace is always a value this slider can show.
-    private let range: ClosedRange<Double> = 80...240
+    private let range = AppSettingsDefaults.wpmRange
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("READING PACE")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.6)
-                .foregroundColor(theme.textFaint)
+            Text("READING PACE").panelTitle()
 
             HStack(alignment: .lastTextBaseline) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(script.targetWPM)")
                         .font(.heading(22))
-                        .foregroundColor(theme.text)
+                        .foregroundStyle(theme.text)
                     Text("wpm")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(theme.textFaint)
+                        .foregroundStyle(theme.textFaint)
                 }
                 Spacer()
                 Text("~\(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM))")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(theme.textFaint)
+                    .foregroundStyle(theme.textFaint)
             }
 
             Slider(
@@ -50,7 +45,7 @@ struct ReadingPacePanel: View {
                 Spacer()
                 Text("\(Int(range.upperBound))").font(.system(size: 10.5, weight: .semibold))
             }
-            .foregroundColor(theme.textFaint)
+            .foregroundStyle(theme.textFaint)
         }
         .padding(16)
         .cardBackground()

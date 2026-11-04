@@ -21,6 +21,7 @@ struct LibraryView: View {
     var libraryOpenError: String? = nil
     @State private var isShowingLibraryOpenError = false
     @State private var isConfirmingEmptyTrash = false
+    @AppStorage(AppSettingsKey.defaultWPM) private var defaultWPM = AppSettingsDefaults.wpm
 
     var body: some View {
         NavigationSplitView {
@@ -31,7 +32,7 @@ struct LibraryView: View {
                     EditorView(script: selectedScript, onClose: { self.selectedScript = nil })
                         // A new identity per script. Without it, "New Script" while the
                         // editor is open reuses the text view, whose coordinator still
-                        // writes to the previous script's body (and keeps its undo stack).
+                        // writes to the previous script's body.
                         .id(selectedScript.id)
                 } else {
                     libraryGrid
@@ -66,7 +67,6 @@ struct LibraryView: View {
                             ScriptCardView(
                                 script: script,
                                 onOpen: { selectedScript = script },
-                                onToggleFavorite: { script.isFavorite.toggle() },
                                 onDelete: { delete(script) }
                             )
                         }
@@ -88,10 +88,10 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.heading(26))
-                    .foregroundColor(theme.text)
+                    .foregroundStyle(theme.text)
                 Text("\(activeScripts.count) scripts · \(folders.count) folders")
                     .font(.system(size: 13))
-                    .foregroundColor(theme.textFaint)
+                    .foregroundStyle(theme.textFaint)
             }
             Spacer()
             HStack(spacing: 10) {
@@ -99,10 +99,10 @@ struct LibraryView: View {
                     Button("Empty Trash", role: .destructive) { isConfirmingEmptyTrash = true }
                 }
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundColor(theme.textFaint)
+                    Image(systemName: "magnifyingglass").foregroundStyle(theme.textFaint)
                     TextField("Search scripts…", text: $searchText)
                         .textFieldStyle(.plain)
-                        .foregroundColor(theme.text)
+                        .foregroundStyle(theme.text)
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 9)
@@ -111,8 +111,8 @@ struct LibraryView: View {
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(theme.border, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
 
-                layoutToggleButton(systemImage: "square.grid.2x2", isActive: isGridLayout) { isGridLayout = true }
-                layoutToggleButton(systemImage: "list.bullet", isActive: !isGridLayout) { isGridLayout = false }
+                layoutToggleButton("Grid", systemImage: "square.grid.2x2", isActive: isGridLayout) { isGridLayout = true }
+                layoutToggleButton("List", systemImage: "list.bullet", isActive: !isGridLayout) { isGridLayout = false }
             }
         }
         .padding(.horizontal, 30)
@@ -120,16 +120,19 @@ struct LibraryView: View {
         .padding(.bottom, 22)
     }
 
-    private func layoutToggleButton(systemImage: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func layoutToggleButton(_ label: String, systemImage: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .frame(width: 34, height: 34)
-                .foregroundColor(isActive ? theme.text : theme.textDim)
+                .foregroundStyle(isActive ? theme.text : theme.textDim)
                 .background(isActive ? theme.text.opacity(0.1) : theme.surface)
                 .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(theme.border, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private var emptyState: some View {
@@ -137,10 +140,10 @@ struct LibraryView: View {
             Spacer()
             Image(systemName: "text.alignleft")
                 .font(.system(size: 34))
-                .foregroundColor(theme.textFaint)
+                .foregroundStyle(theme.textFaint)
             Text(searchText.isEmpty ? "No scripts here yet" : "No scripts match “\(searchText)”")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(theme.textDim)
+                .foregroundStyle(theme.textDim)
             if searchText.isEmpty {
                 Button("New Script", action: createScript)
                     .buttonStyle(GradientButtonStyle())
@@ -181,10 +184,9 @@ struct LibraryView: View {
     }
 
     private func createScript() {
-        let defaultWPM = UserDefaults.standard.integer(forKey: AppSettingsKey.defaultWPM)
         let folder: Folder? = { if case .folder(let id) = selection { return folders.first(where: { $0.id == id }) } else { return nil } }()
         let script = Script(
-            targetWPM: defaultWPM == 0 ? 150 : defaultWPM,
+            targetWPM: defaultWPM,
             accentIndex: allScripts.count
         )
         script.folder = folder
@@ -215,28 +217,24 @@ private struct ScriptRow: View {
     var onOpen: () -> Void
     var onDelete: () -> Void
 
-    private var accentColor: Color { theme.accentPalette[script.accentIndex % theme.accentPalette.count] }
+    private var accentColor: Color { theme.accent(at: script.accentIndex) }
 
     var body: some View {
         let wordCount = script.wordCount
         HStack(spacing: 12) {
             Circle().fill(accentColor).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
-                Text(script.title).font(.system(size: 13, weight: .semibold)).foregroundColor(theme.text)
-                Text(script.snippet).font(.system(size: 11.5)).foregroundColor(theme.textFaint).lineLimit(1)
+                Text(script.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.text)
+                Text(script.snippet).font(.system(size: 11.5)).foregroundStyle(theme.textFaint).lineLimit(1)
             }
             Spacer()
-            Text("\(wordCount) words").font(.system(size: 11)).foregroundColor(theme.textFaint)
-            Text(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM)).font(.system(size: 11)).foregroundColor(theme.textFaint)
+            Text("\(wordCount) words").font(.system(size: 11)).foregroundStyle(theme.textFaint)
+            Text(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM)).font(.system(size: 11)).foregroundStyle(theme.textFaint)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
-        .contextMenu {
-            if script.isTrashed {
-                Button("Put Back") { script.isTrashed = false }
-            }
-            Button(script.isTrashed ? "Delete Permanently" : "Move to Trash", role: .destructive, action: onDelete)
-        }
+        .accessibilityAddTraits(.isButton)
+        .contextMenu { ScriptMenuItems(script: script, onDelete: onDelete) }
     }
 }

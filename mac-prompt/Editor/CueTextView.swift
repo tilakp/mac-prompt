@@ -2,18 +2,16 @@
 //  CueTextView.swift
 //  mac-prompt
 //
-//  NSTextView-backed editor with regex-based syntax highlighting for cue tokens
-//  ([PAUSE], [EMPHASIS], »» FASTER, «« SLOWER) and light markdown emphasis
-//  (**bold**, *italic*). SwiftUI's TextEditor can't do inline highlighting, so this
-//  wraps AppKit directly, the same approach the original app used for its key catcher.
+//  The script editor: an NSTextView that highlights cue tokens and bold/italic
+//  markup. SwiftUI's TextEditor cannot style ranges of its text.
 
 import AppKit
 import SwiftUI
 
-/// Lets the formatting toolbar insert/wrap text at the actual text-view cursor
-/// position instead of always appending to the end of the script.
+/// Lets the formatting toolbar insert or wrap text at the cursor, not at the end of
+/// the script.
 @MainActor
-final class CueTextController: ObservableObject {
+final class CueTextController {
     fileprivate weak var textView: NSTextView?
 
     func insert(_ string: String) {
@@ -22,14 +20,27 @@ final class CueTextController: ObservableObject {
     }
 
     func wrapSelection(with marker: String) {
-        guard let textView, let storage = textView.textStorage else { return }
+        guard let textView else { return }
         let range = textView.selectedRange()
-        if range.length > 0 {
-            let selected = (storage.string as NSString).substring(with: range)
-            textView.insertText(marker + selected + marker, replacementRange: range)
-        } else {
+        guard range.length > 0 else {
             insert(marker + "text" + marker)
+            return
         }
+        let selected = (textView.string as NSString).substring(with: range)
+        let wrapped = selected
+            .components(separatedBy: "\n")
+            .map { Self.wrap($0, with: marker) }
+            .joined(separator: "\n")
+        textView.insertText(wrapped, replacementRange: range)
+    }
+
+    /// Puts `marker` around the text of `line`, inside its leading and trailing spaces.
+    /// Markup does not span lines and needs text next to its markers, so each line of
+    /// a selection is wrapped on its own.
+    nonisolated static func wrap(_ line: String, with marker: String) -> String {
+        guard let first = line.firstIndex(where: { !$0.isWhitespace }),
+              let last = line.lastIndex(where: { !$0.isWhitespace }) else { return line }
+        return String(line[..<first]) + marker + line[first...last] + marker + line[line.index(after: last)...]
     }
 }
 
@@ -60,6 +71,7 @@ struct CueTextView: NSViewRepresentable {
         textView.string = text
         textView.textStorage?.delegate = context.coordinator
         controller.textView = textView
+        context.coordinator.fontSize = fontSize
         context.coordinator.applyHighlighting(to: textView)
 
         let scrollView = NSScrollView()
@@ -71,17 +83,27 @@ struct CueTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
+        let coordinator = context.coordinator
         var needsHighlight = false
-        if textView.string != text {
+        // A change from outside this text view, e.g. the same script edited in a
+        // second Library window. Not during IME input: the binding does not have the
+        // uncommitted text yet, and replacing it would break the input.
+        if textView.string != text, !textView.hasMarkedText() {
+            let selection = textView.selectedRange()
             textView.string = text
+            // The undo actions refer to ranges in the replaced text.
+            coordinator.undoManager.removeAllActions()
+            let length = (text as NSString).length
+            textView.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
             needsHighlight = true
         }
-        if textView.font?.pointSize != CGFloat(fontSize) {
+        if coordinator.fontSize != fontSize {
+            coordinator.fontSize = fontSize
             textView.font = .systemFont(ofSize: fontSize)
             needsHighlight = true
         }
         if needsHighlight {
-            context.coordinator.applyHighlighting(to: textView)
+            coordinator.applyHighlighting(to: textView)
         }
     }
 
@@ -92,6 +114,10 @@ struct CueTextView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
         let text: Binding<String>
+        var fontSize: Double = 0
+        /// This editor's own undo history. By default a text view uses its window's,
+        /// which keeps the actions of a script after the editor switches to another.
+        let undoManager = UndoManager()
         /// Characters edited since the last highlight. Restyling the whole document on
         /// each keystroke makes the text view lay out all of it again, which is slow
         /// for a long script, so only the paragraphs around this range are restyled.
@@ -99,6 +125,10 @@ struct CueTextView: NSViewRepresentable {
 
         init(text: Binding<String>) {
             self.text = text
+        }
+
+        func undoManager(for view: NSTextView) -> UndoManager? {
+            undoManager
         }
 
         nonisolated func textStorage(
@@ -133,8 +163,7 @@ struct CueTextView: NSViewRepresentable {
             applyHighlighting(to: textView, around: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
         }
 
-        /// Restyles the paragraphs that `range` touches, plus one paragraph on each side
-        /// (a cue such as "»»" + line break + "FASTER" can span a line break).
+        /// Restyles the paragraphs that `range` touches, plus one paragraph on each side.
         private func applyHighlighting(to textView: NSTextView, around range: NSRange) {
             guard let storage = textView.textStorage else { return }
             let string = storage.string as NSString
@@ -148,22 +177,24 @@ struct CueTextView: NSViewRepresentable {
             if NSMaxRange(target) < length {
                 target = NSUnionRange(target, string.paragraphRange(for: NSRange(location: NSMaxRange(target), length: 0)))
             }
-            let baseFont = textView.font ?? .systemFont(ofSize: 18)
+            // Not `textView.font`: that is the font of the first character, which is
+            // bold when the script starts with a cue or bold text.
+            let baseFont = NSFont.systemFont(ofSize: fontSize)
 
             storage.beginEditing()
             storage.setAttributes([.font: baseFont, .foregroundColor: NSColor.labelColor], range: target)
 
             let plain = storage.string
-            for match in CueToken.cueRegex.matches(in: plain, range: target) {
+            for match in ScriptMarkup.cueRegex.matches(in: plain, range: target) {
                 storage.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: match.range)
-                storage.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: baseFont.pointSize), range: match.range)
+                storage.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: fontSize), range: match.range)
             }
             let boldFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-            for match in CueToken.boldRegex.matches(in: plain, range: target) {
+            for match in ScriptMarkup.boldRegex.matches(in: plain, range: target) {
                 storage.addAttribute(.font, value: boldFont, range: match.range)
             }
             let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-            for match in CueToken.italicRegex.matches(in: plain, range: target) {
+            for match in ScriptMarkup.italicRegex.matches(in: plain, range: target) {
                 storage.addAttribute(.font, value: italicFont, range: match.range)
             }
             storage.endEditing()

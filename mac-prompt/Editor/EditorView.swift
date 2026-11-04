@@ -11,7 +11,7 @@ struct EditorView: View {
     @Environment(\.openWindow) private var openWindow
     @Bindable var script: Script
     var onClose: () -> Void
-    @StateObject private var cueController = CueTextController()
+    @State private var cueController = CueTextController()
 
     var body: some View {
         // Counted once per update: each count runs a regex over the whole body.
@@ -38,23 +38,23 @@ struct EditorView: View {
                     Text("Library")
                 }
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(theme.textFaint)
+                .foregroundStyle(theme.textFaint)
             }
             .buttonStyle(.plain)
 
-            Text("/").foregroundColor(theme.textFaint).opacity(0.5)
+            Text("/").foregroundStyle(theme.textFaint).opacity(0.5)
 
             TextField("Untitled Script", text: $script.title)
                 .textFieldStyle(.plain)
                 .font(.heading(15))
-                .foregroundColor(theme.text)
+                .foregroundStyle(theme.text)
                 .frame(minWidth: 120, maxWidth: 360)
 
             Spacer()
 
             Text("\(wordCount) words · ~\(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM)) at \(script.targetWPM) wpm")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(theme.textFaint)
+                .foregroundStyle(theme.textFaint)
 
             Button {
                 openWindow(id: "prompter", value: script.id)
@@ -106,13 +106,13 @@ private struct CueToolbar: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            toolButton("bold") { controller.wrapSelection(with: "**") }
-            toolButton("italic") { controller.wrapSelection(with: "*") }
+            toolButton("Bold", systemImage: "bold") { controller.wrapSelection(with: "**") }
+            toolButton("Italic", systemImage: "italic") { controller.wrapSelection(with: "*") }
             Rectangle().fill(theme.border).frame(width: 1, height: 18).padding(.horizontal, 3)
-            toolButton("pause.circle") { controller.insert(" " + CueToken.pause.insertionText + " ") }
-            toolButton("bolt.circle") { controller.insert(" " + CueToken.emphasis.insertionText + " ") }
-            toolButton("forward.circle") { controller.insert(" " + CueToken.faster.insertionText + " ") }
-            toolButton("backward.circle") { controller.insert(" " + CueToken.slower.insertionText + " ") }
+            toolButton("Insert pause", systemImage: "pause.circle") { insert(.pause) }
+            toolButton("Insert emphasis", systemImage: "bolt.circle") { insert(.emphasis) }
+            toolButton("Insert faster", systemImage: "forward.circle") { insert(.faster) }
+            toolButton("Insert slower", systemImage: "backward.circle") { insert(.slower) }
         }
         .padding(5)
         .background(theme.surface)
@@ -121,13 +121,19 @@ private struct CueToolbar: View {
         .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
     }
 
-    private func toolButton(_ systemImage: String, action: @escaping () -> Void) -> some View {
+    private func insert(_ cue: CueToken) {
+        controller.insert(" " + cue.text + " ")
+    }
+
+    private func toolButton(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(theme.textDim)
+                .foregroundStyle(theme.textDim)
                 .frame(width: 30, height: 28)
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }

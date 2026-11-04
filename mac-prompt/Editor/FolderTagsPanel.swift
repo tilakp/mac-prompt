@@ -16,10 +16,7 @@ struct FolderTagsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("FOLDER & TAGS")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.6)
-                .foregroundColor(theme.textFaint)
+            Text("FOLDER & TAGS").panelTitle()
 
             Menu {
                 Button("No Folder") { script.folder = nil }
@@ -29,15 +26,15 @@ struct FolderTagsPanel: View {
             } label: {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(script.folder.map { theme.accentPalette[$0.accentIndex % theme.accentPalette.count] } ?? theme.textFaint)
+                        .fill(script.folder.map { theme.accent(at: $0.accentIndex) } ?? theme.textFaint)
                         .frame(width: 8, height: 8)
                     Text(script.folder?.name ?? "No Folder")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(theme.text)
+                        .foregroundStyle(theme.text)
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(theme.textFaint)
+                        .foregroundStyle(theme.textFaint)
                 }
             }
             .menuStyle(.borderlessButton)
@@ -48,12 +45,14 @@ struct FolderTagsPanel: View {
                 TextField("Add tag…", text: $newTag)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
-                    .foregroundColor(theme.text)
+                    .foregroundStyle(theme.text)
                     .onSubmit(addTag)
                 Button(action: addTag) {
-                    Image(systemName: "plus.circle.fill").foregroundColor(theme.textFaint)
+                    Image(systemName: "plus.circle.fill").foregroundStyle(theme.textFaint)
                 }
                 .buttonStyle(.plain)
+                .help("Add Tag")
+                .accessibilityLabel("Add Tag")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -87,9 +86,10 @@ private struct FlowTags: View {
                             Image(systemName: "xmark")
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove tag \(tag)")
                     }
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(theme.textDim)
+                    .foregroundStyle(theme.textDim)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
                     .background(theme.surface2, in: RoundedRectangle(cornerRadius: 7, style: .continuous))

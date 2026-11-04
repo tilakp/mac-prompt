@@ -35,7 +35,7 @@ private struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 14) {
             Label(title, systemImage: systemImage)
                 .font(.heading(14.5))
-                .foregroundColor(theme.text)
+                .foregroundStyle(theme.text)
             content
         }
         .padding(18)
@@ -55,9 +55,9 @@ private struct SettingsRow<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.system(size: 12.5, weight: .semibold)).foregroundColor(theme.textDim)
+                Text(label).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(theme.textDim)
                 if let help {
-                    Text(help).font(.system(size: 11)).foregroundColor(theme.textFaint).frame(maxWidth: 320, alignment: .leading)
+                    Text(help).font(.system(size: 11)).foregroundStyle(theme.textFaint).frame(maxWidth: 320, alignment: .leading)
                 }
             }
             Spacer()
@@ -68,17 +68,14 @@ private struct SettingsRow<Trailing: View>: View {
 
 private struct GeneralSettingsTab: View {
     @Environment(\.theme) private var theme
-    @AppStorage(AppSettingsKey.theme) private var themeRaw = ThemePreference.dark.rawValue
+    @AppStorage(AppSettingsKey.theme) private var themePreference = ThemePreference.dark
 
     var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             SettingsSection(title: "Appearance", systemImage: "circle.righthalf.filled") {
                 SettingsRow(label: "Theme") {
-                    Picker("", selection: Binding(
-                        get: { ThemePreference(rawValue: themeRaw) ?? .dark },
-                        set: { themeRaw = $0.rawValue }
-                    )) {
+                    Picker("Theme", selection: $themePreference) {
                         ForEach(ThemePreference.allCases) { option in
                             Text(option.label).tag(option)
                         }
@@ -90,8 +87,8 @@ private struct GeneralSettingsTab: View {
             }
             SettingsSection(title: "About", systemImage: "info.circle") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Prompt").font(.system(size: 13, weight: .semibold)).foregroundColor(theme.text)
-                    Text("An open-source teleprompter for macOS.").font(.system(size: 11.5)).foregroundColor(theme.textFaint)
+                    Text("Prompt").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.text)
+                    Text("An open-source teleprompter for macOS.").font(.system(size: 11.5)).foregroundStyle(theme.textFaint)
                 }
             }
         }
@@ -101,8 +98,8 @@ private struct GeneralSettingsTab: View {
 }
 
 private struct ReadingDisplaySettingsTab: View {
-    @AppStorage(AppSettingsKey.defaultWPM) private var defaultWPM = 150
-    @AppStorage(AppSettingsKey.defaultPrompterFontSize) private var defaultFontSizeRaw = PrompterFontSize.medium.rawValue
+    @AppStorage(AppSettingsKey.defaultWPM) private var defaultWPM = AppSettingsDefaults.wpm
+    @AppStorage(AppSettingsKey.defaultPrompterFontSize) private var defaultFontSize = PrompterFontSize.medium
 
     var body: some View {
         ScrollView {
@@ -110,16 +107,13 @@ private struct ReadingDisplaySettingsTab: View {
             SettingsSection(title: "Reading & Display", systemImage: "textformat") {
                 SettingsRow(label: "Default scroll speed", help: "Words per minute new scripts start at.") {
                     HStack(spacing: 10) {
-                        Slider(value: Binding(get: { Double(defaultWPM) }, set: { defaultWPM = Int($0) }), in: 80...240)
+                        Slider(value: Binding(get: { Double(defaultWPM) }, set: { defaultWPM = Int($0) }), in: AppSettingsDefaults.wpmRange)
                             .frame(width: 180)
                         Text("\(defaultWPM) wpm").font(.system(size: 12, weight: .bold)).frame(width: 60, alignment: .trailing)
                     }
                 }
                 SettingsRow(label: "Prompter font size") {
-                    Picker("", selection: Binding(
-                        get: { PrompterFontSize(rawValue: defaultFontSizeRaw) ?? .medium },
-                        set: { defaultFontSizeRaw = $0.rawValue }
-                    )) {
+                    Picker("Prompter font size", selection: $defaultFontSize) {
                         ForEach(PrompterFontSize.allCases) { option in
                             Text(option.label).tag(option)
                         }
@@ -137,7 +131,7 @@ private struct ReadingDisplaySettingsTab: View {
 
 private struct VoiceTrackingSettingsTab: View {
     @AppStorage(AppSettingsKey.voiceTrackingEnabled) private var enabled = true
-    @AppStorage(AppSettingsKey.voiceTrackingSensitivity) private var sensitivityRaw = VoiceTrackingSensitivity.balanced.rawValue
+    @AppStorage(AppSettingsKey.voiceTrackingSensitivity) private var sensitivity = VoiceTrackingSensitivity.balanced
 
     var body: some View {
         ScrollView {
@@ -145,15 +139,12 @@ private struct VoiceTrackingSettingsTab: View {
             SettingsSection(title: "Voice Tracking", systemImage: "waveform") {
                 SettingsRow(
                     label: "Auto-adjust speed to my voice",
-                    help: "Listens through the mic and nudges scroll speed toward your measured speaking pace as you read. It does not jump to specific words — it smooths toward your overall rate."
+                    help: "Listens through the mic and nudges scroll speed toward your measured speaking pace as you read. It does not jump to specific words. It moves smoothly toward your overall pace."
                 ) {
-                    Toggle("", isOn: $enabled).labelsHidden().toggleStyle(.switch)
+                    Toggle("Auto-adjust speed to my voice", isOn: $enabled).labelsHidden().toggleStyle(.switch)
                 }
                 SettingsRow(label: "Sensitivity") {
-                    Picker("", selection: Binding(
-                        get: { VoiceTrackingSensitivity(rawValue: sensitivityRaw) ?? .balanced },
-                        set: { sensitivityRaw = $0.rawValue }
-                    )) {
+                    Picker("Sensitivity", selection: $sensitivity) {
                         ForEach(VoiceTrackingSensitivity.allCases) { option in
                             Text(option.label).tag(option)
                         }
@@ -191,10 +182,10 @@ private struct CameraSettingsTab: View {
                     label: "Camera passthrough",
                     help: "Show a live camera feed behind the scrolling script in Prompter mode, so you can record yourself reading."
                 ) {
-                    Toggle("", isOn: $cameraEnabled).labelsHidden().toggleStyle(.switch)
+                    Toggle("Camera passthrough", isOn: $cameraEnabled).labelsHidden().toggleStyle(.switch)
                 }
                 SettingsRow(label: "Camera source") {
-                    Picker("", selection: $cameraDeviceID) {
+                    Picker("Camera source", selection: $cameraDeviceID) {
                         Text("System Default").tag("")
                         ForEach(availableCameras, id: \.uniqueID) { device in
                             Text(device.localizedName).tag(device.uniqueID)
@@ -231,11 +222,11 @@ private struct ShortcutsSettingsTab: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
                     ForEach(shortcuts, id: \.0) { shortcut in
                         HStack {
-                            Text(shortcut.0).font(.system(size: 12, weight: .semibold)).foregroundColor(theme.textDim)
+                            Text(shortcut.0).font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.textDim)
                             Spacer()
                             Text(shortcut.1)
                                 .font(.heading(11))
-                                .foregroundColor(theme.textDim)
+                                .foregroundStyle(theme.textDim)
                                 .padding(.horizontal, 6)
                                 .frame(minWidth: 24, minHeight: 20)
                                 .background(theme.surface2, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
