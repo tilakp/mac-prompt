@@ -35,6 +35,9 @@ final class TeleprompterEngine {
     /// must reflect that nothing is running rather than defaulting to "playing".
     var isPlaying: Bool = false
     var speedMultiplier: Double = 1.0
+    /// The sum of the user's own speed changes (↑/↓, −/+). Voice tracking aims for its
+    /// measured pace plus this offset, so it does not undo what the user asked for.
+    @ObservationIgnored private(set) var manualSpeedOffset: Double = 0
     var fontSize: CGFloat
     var mirrored: Bool = false
 
@@ -47,8 +50,12 @@ final class TeleprompterEngine {
     private(set) var textHeight: CGFloat = 0
     @ObservationIgnored private var displayLink: CADisplayLink?
     @ObservationIgnored private var lastFrameTimestamp: CFTimeInterval?
+    /// A view in the Prompter window. Its display link follows the window from screen
+    /// to screen; a link from `NSScreen.main` stays on the first screen, which judders
+    /// at a different refresh rate and stops if that screen is disconnected.
+    @ObservationIgnored private weak var displayLinkView: NSView?
 
-    static let speedMultiplierRange: ClosedRange<Double> = 0.5...2.0
+    nonisolated static let speedMultiplierRange: ClosedRange<Double> = 0.5...2.0
 
     init(baseWPM: Int, fontSize: CGFloat, lineSpacing: CGFloat) {
         self.baseWPM = baseWPM
@@ -105,14 +112,22 @@ final class TeleprompterEngine {
         scrollOffset = maxOffset
     }
 
+    /// Uses `view`'s display link from now on, and moves a running link to it.
+    func attach(to view: NSView) {
+        displayLinkView = view
+        if isPlaying { start() }
+    }
+
     func start() {
         stopDisplayLink()
         isPlaying = true
         // A display link fires once per screen refresh, so the text moves exactly once
         // per frame. `.common` mode keeps it running while a menu or control is held.
         let target = DisplayLinkTarget { [weak self] timestamp in self?.step(timestamp: timestamp) }
-        let link = (NSScreen.main ?? NSScreen.screens.first)?
-            .displayLink(target: target, selector: #selector(DisplayLinkTarget.step(_:)))
+        let selector = #selector(DisplayLinkTarget.step(_:))
+        // The screen link is only for when no view is attached yet (and for unit tests).
+        let link = displayLinkView?.displayLink(target: target, selector: selector)
+            ?? (NSScreen.main ?? NSScreen.screens.first)?.displayLink(target: target, selector: selector)
         link?.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -151,8 +166,11 @@ final class TeleprompterEngine {
         scrollOffset = next
     }
 
+    /// A speed change by the user. VoiceTracker sets `speedMultiplier` directly.
     func adjustSpeedMultiplier(by delta: Double) {
+        let old = speedMultiplier
         speedMultiplier = min(max(speedMultiplier + delta, Self.speedMultiplierRange.lowerBound), Self.speedMultiplierRange.upperBound)
+        manualSpeedOffset += speedMultiplier - old
     }
 
     func adjustFontSize(by delta: CGFloat) {

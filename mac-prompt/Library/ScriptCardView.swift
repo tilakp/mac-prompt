@@ -15,6 +15,7 @@ struct ScriptCardView: View {
     private var accentColor: Color { theme.accentPalette[script.accentIndex % theme.accentPalette.count] }
 
     var body: some View {
+        let wordCount = script.wordCount
         VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(accentColor).frame(height: 4)
 
@@ -61,10 +62,10 @@ struct ScriptCardView: View {
 
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text")
-                    Text("\(script.wordCount) words")
+                    Text("\(wordCount) words")
                     Text("·").opacity(0.5)
                     Image(systemName: "clock")
-                    Text(script.estimatedDuration)
+                    Text(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM))
                     Text("·").opacity(0.5)
                     Text(script.editedAt.formatted(.relative(presentation: .named)))
                 }

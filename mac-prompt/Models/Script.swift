@@ -27,6 +27,13 @@ enum LineSpacingStyle: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
+extension Notification.Name {
+    /// Posted on the main thread just before a script is permanently deleted, with the
+    /// script's `id` as the object. An open Prompter window for that script must drop
+    /// its reference first: reading a deleted SwiftData model can stop the app.
+    static let scriptWillBeDeleted = Notification.Name("scriptWillBeDeleted")
+}
+
 @Model
 final class Script {
     var id: UUID
@@ -80,9 +87,14 @@ final class Script {
 
     /// Formatted "M:SS" duration estimate at the given words-per-minute pace.
     func estimatedDuration(at wpm: Int) -> String {
+        Script.estimatedDuration(wordCount: wordCount, wpm: wpm)
+    }
+
+    /// For callers that already have the word count, so they do not count the body again.
+    static func estimatedDuration(wordCount: Int, wpm: Int) -> String {
         let safeWPM = max(wpm, 1)
         let totalSeconds = Int((Double(wordCount) / Double(safeWPM)) * 60)
-        return Script.formatDuration(totalSeconds: totalSeconds)
+        return formatDuration(totalSeconds: totalSeconds)
     }
 
     var estimatedDuration: String { estimatedDuration(at: targetWPM) }

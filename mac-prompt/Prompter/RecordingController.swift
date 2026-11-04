@@ -7,7 +7,9 @@
 //  Documents directory, which is always writable inside the sandbox without any
 //  extra user-facing file picker or entitlement beyond camera/microphone access.
 
-import AVFoundation
+// AVFoundation does not mark its types Sendable. They are used across threads only
+// through `sessionQueue`, which serializes all access.
+@preconcurrency import AVFoundation
 
 @MainActor
 final class RecordingController: NSObject, ObservableObject {
@@ -19,10 +21,17 @@ final class RecordingController: NSObject, ObservableObject {
     let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
     private var elapsedTimer: Timer?
+    private var recordingStartDate: Date?
 
-    /// The most recently scheduled start/stop, so a new start/stop always runs after
-    /// whichever one preceded it finishes touching the hardware — see `start()`/`stop()`.
-    private var pendingSessionTask: Task<Void, Never>?
+    /// Every call that touches `session` or `movieOutput` runs on this one serial queue.
+    /// AVCaptureSession is not thread-safe, and its configuration and start/stop calls
+    /// block, so they must not run on the main thread or in the Swift concurrency pool.
+    /// The queue also keeps them in the order they were asked for: closing the Prompter
+    /// right after opening it cannot let `startRunning()` run after `stopRunning()`.
+    private let sessionQueue = DispatchQueue(label: "com.patelt.mac-prompt.capture-session")
+    /// True between `start()` and `stop()`, so an interruption that ends after `stop()`
+    /// does not mark the camera ready again.
+    private var wantsRunning = false
     private var interruptionObservers: [NSObjectProtocol] = []
 
     static func requestCameraAccess() async -> Bool {
@@ -44,7 +53,7 @@ final class RecordingController: NSObject, ObservableObject {
             },
             center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, !self.session.inputs.isEmpty else { return }
+                    guard let self, self.wantsRunning else { return }
                     self.isCameraReady = true
                 }
             },
@@ -57,8 +66,25 @@ final class RecordingController: NSObject, ObservableObject {
     }
 
     /// (Re)configures the session's inputs/outputs for the given camera device
-    /// (nil = system default). Safe to call again to switch cameras.
+    /// (nil = system default). Safe to call again to switch cameras. The work runs on
+    /// `sessionQueue`; `isCameraReady` changes when it is done.
     func configure(deviceID: String?) {
+        sessionQueue.async { [weak self, session, movieOutput] in
+            let ready = Self.configureSession(session, movieOutput: movieOutput, deviceID: deviceID)
+            Task { @MainActor in
+                // Callers call `start()` right after this. A `stop()` that came first
+                // must not be undone by a configuration that finishes later.
+                guard let self else { return }
+                self.isCameraReady = ready && self.wantsRunning
+            }
+        }
+    }
+
+    private nonisolated static func configureSession(
+        _ session: AVCaptureSession,
+        movieOutput: AVCaptureMovieFileOutput,
+        deviceID: String?
+    ) -> Bool {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
 
@@ -69,10 +95,7 @@ final class RecordingController: NSObject, ObservableObject {
         let device: AVCaptureDevice? = deviceID.flatMap(AVCaptureDevice.init(uniqueID:))
             ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .unspecified)
 
-        guard let device, let input = try? AVCaptureDeviceInput(device: device) else {
-            isCameraReady = false
-            return
-        }
+        guard let device, let input = try? AVCaptureDeviceInput(device: device) else { return false }
         if session.canAddInput(input) { session.addInput(input) }
 
         if let audioDevice = AVCaptureDevice.default(for: .audio),
@@ -82,46 +105,51 @@ final class RecordingController: NSObject, ObservableObject {
         }
 
         if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
-        isCameraReady = true
+        return true
     }
 
     func start() {
-        // AVCaptureSession.startRunning()/stopRunning() block, so Apple's guidance is to
-        // call them off the main thread. Chaining onto `pendingSessionTask` (rather than
-        // firing an independent detached task each time) guarantees a start and a stop
-        // requested close together run in the order they were requested instead of
-        // racing — e.g. closing the Prompter window right after opening it must not let
-        // a still-in-flight startRunning() begin *after* the matching stopRunning() has
-        // already run, which would leave the camera on with nothing left to stop it.
-        let previous = pendingSessionTask
-        pendingSessionTask = Task.detached { [session] in
-            _ = await previous?.value
-            session.startRunning()
-        }
+        wantsRunning = true
+        sessionQueue.async { [session] in session.startRunning() }
     }
 
     func stop() {
         if isRecording { stopRecording() }
-        let previous = pendingSessionTask
-        pendingSessionTask = Task.detached { [session] in
-            _ = await previous?.value
-            session.stopRunning()
-        }
+        wantsRunning = false
+        // A stopped session cannot record. Without this, R with passthrough switched
+        // off would start a recording that fails at once. `configure` makes it ready again.
+        isCameraReady = false
+        sessionQueue.async { [session] in session.stopRunning() }
     }
 
     func startRecording() {
         guard !isRecording, isCameraReady else { return }
-        movieOutput.startRecording(to: RecordingController.newRecordingURL(), recordingDelegate: self)
+        let url = RecordingController.newRecordingURL()
+        sessionQueue.async { [movieOutput] in
+            movieOutput.startRecording(to: url, recordingDelegate: self)
+        }
         isRecording = true
         elapsedSeconds = 0
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.elapsedSeconds += 1 }
+        let startDate = Date.now
+        recordingStartDate = startDate
+        // Computed from the start date, so it does not drift. `.common` mode keeps it
+        // updating while a menu is open.
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let start = self.recordingStartDate else { return }
+                // `@Published` notifies on every assignment, even of an equal value,
+                // and each notification redraws the whole Prompter view.
+                let seconds = Int(Date.now.timeIntervalSince(start))
+                if seconds != self.elapsedSeconds { self.elapsedSeconds = seconds }
+            }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        elapsedTimer = timer
     }
 
     func stopRecording() {
         guard isRecording else { return }
-        movieOutput.stopRecording()
+        sessionQueue.async { [movieOutput] in movieOutput.stopRecording() }
     }
 
     var elapsedTimeText: String { Script.formatDuration(totalSeconds: elapsedSeconds) }
@@ -165,6 +193,7 @@ extension RecordingController: AVCaptureFileOutputRecordingDelegate {
             self.isRecording = false
             self.elapsedTimer?.invalidate()
             self.elapsedTimer = nil
+            self.recordingStartDate = nil
             if finished {
                 self.lastRecordingURL = outputFileURL
             }

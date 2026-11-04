@@ -17,6 +17,9 @@ struct SidebarView: View {
 
     @State private var isPresentingNewFolder = false
     @State private var newFolderName = ""
+    @State private var folderToRename: Folder?
+    @State private var renameText = ""
+    @State private var folderToDelete: Folder?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -81,6 +84,13 @@ struct SidebarView: View {
                         }
                     }
                     .buttonStyle(NavItemStyle(isActive: selection == .folder(folder.id)))
+                    .contextMenu {
+                        Button("Rename…") {
+                            renameText = folder.name
+                            folderToRename = folder
+                        }
+                        Button("Delete Folder…", role: .destructive) { folderToDelete = folder }
+                    }
                 }
             }
 
@@ -103,6 +113,39 @@ struct SidebarView: View {
                 newFolderName = ""
             }
         }
+        .alert("Rename Folder", isPresented: Binding(
+            get: { folderToRename != nil },
+            set: { if !$0 { folderToRename = nil } }
+        )) {
+            TextField("Folder name", text: $renameText)
+            Button("Rename") {
+                let name = renameText.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { folderToRename?.name = name }
+                folderToRename = nil
+            }
+            Button("Cancel", role: .cancel) { folderToRename = nil }
+        }
+        .confirmationDialog(
+            "Delete the folder “\(folderToDelete?.name ?? "")”?",
+            isPresented: Binding(
+                get: { folderToDelete != nil },
+                set: { if !$0 { folderToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Folder", role: .destructive) {
+                if let folder = folderToDelete { deleteFolder(folder) }
+                folderToDelete = nil
+            }
+        } message: {
+            Text("The scripts in it are not deleted. They move to No Folder.")
+        }
+    }
+
+    private func deleteFolder(_ folder: Folder) {
+        if selection == .folder(folder.id) { selection = .smart(.library) }
+        // The relationship's delete rule is .nullify: the scripts stay, with no folder.
+        modelContext.delete(folder)
     }
 
     private func createFolder() {

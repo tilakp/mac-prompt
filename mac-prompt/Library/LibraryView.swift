@@ -20,6 +20,7 @@ struct LibraryView: View {
 
     var libraryOpenError: String? = nil
     @State private var isShowingLibraryOpenError = false
+    @State private var isConfirmingEmptyTrash = false
 
     var body: some View {
         NavigationSplitView {
@@ -39,6 +40,11 @@ struct LibraryView: View {
         }
         .background(theme.bg)
         .onAppear { isShowingLibraryOpenError = libraryOpenError != nil }
+        .confirmationDialog("Empty the Trash?", isPresented: $isConfirmingEmptyTrash, titleVisibility: .visible) {
+            Button("Empty Trash", role: .destructive, action: emptyTrash)
+        } message: {
+            Text("The scripts in the Trash are deleted permanently. You cannot undo this.")
+        }
         .alert("Your library could not be opened", isPresented: $isShowingLibraryOpenError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -47,7 +53,9 @@ struct LibraryView: View {
     }
 
     private var libraryGrid: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Filtered once per update; the search scans every script body.
+        let visibleScripts = visibleScripts
+        return VStack(alignment: .leading, spacing: 0) {
             header
             if visibleScripts.isEmpty {
                 emptyState
@@ -87,6 +95,9 @@ struct LibraryView: View {
             }
             Spacer()
             HStack(spacing: 10) {
+                if selection == .smart(.trash), allScripts.contains(where: \.isTrashed) {
+                    Button("Empty Trash", role: .destructive) { isConfirmingEmptyTrash = true }
+                }
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundColor(theme.textFaint)
                     TextField("Search scripts…", text: $searchText)
@@ -183,11 +194,18 @@ struct LibraryView: View {
 
     private func delete(_ script: Script) {
         if script.isTrashed {
+            NotificationCenter.default.post(name: .scriptWillBeDeleted, object: script.id)
             modelContext.delete(script)
         } else {
             script.isTrashed = true
         }
         if selectedScript === script { selectedScript = nil }
+    }
+
+    private func emptyTrash() {
+        for script in allScripts where script.isTrashed {
+            delete(script)
+        }
     }
 }
 
@@ -200,6 +218,7 @@ private struct ScriptRow: View {
     private var accentColor: Color { theme.accentPalette[script.accentIndex % theme.accentPalette.count] }
 
     var body: some View {
+        let wordCount = script.wordCount
         HStack(spacing: 12) {
             Circle().fill(accentColor).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
@@ -207,8 +226,8 @@ private struct ScriptRow: View {
                 Text(script.snippet).font(.system(size: 11.5)).foregroundColor(theme.textFaint).lineLimit(1)
             }
             Spacer()
-            Text("\(script.wordCount) words").font(.system(size: 11)).foregroundColor(theme.textFaint)
-            Text(script.estimatedDuration).font(.system(size: 11)).foregroundColor(theme.textFaint)
+            Text("\(wordCount) words").font(.system(size: 11)).foregroundColor(theme.textFaint)
+            Text(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM)).font(.system(size: 11)).foregroundColor(theme.textFaint)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

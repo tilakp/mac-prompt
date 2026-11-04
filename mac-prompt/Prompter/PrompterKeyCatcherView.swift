@@ -20,19 +20,24 @@ enum PrompterKey: Equatable {
 
 struct PrompterKeyCatcherView: NSViewRepresentable {
     var onKeyPress: (PrompterKey) -> Void
+    /// Called when the view is in a window, with the view itself.
+    var onAttach: ((NSView) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSView {
         let view = KeyCatcherView()
         view.onKeyPress = onKeyPress
+        view.onAttach = onAttach
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         (nsView as? KeyCatcherView)?.onKeyPress = onKeyPress
+        (nsView as? KeyCatcherView)?.onAttach = onAttach
     }
 
     final class KeyCatcherView: NSView {
         var onKeyPress: ((PrompterKey) -> Void)?
+        var onAttach: ((NSView) -> Void)?
 
         override var acceptsFirstResponder: Bool { true }
 
@@ -70,6 +75,7 @@ struct PrompterKeyCatcherView: NSViewRepresentable {
             // turns the camera and mic on and starts scrolling before the user asks.
             // (`.restorationBehavior(.disabled)` needs macOS 15; this target is 14.6.)
             window?.isRestorable = false
+            if window != nil { onAttach?(self) }
         }
     }
 }

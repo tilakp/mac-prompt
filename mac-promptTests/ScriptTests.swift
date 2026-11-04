@@ -42,6 +42,17 @@ final class ScriptTests: XCTestCase {
         XCTAssertEqual(text, "5 * 3 = 15, and this is bold.")
     }
 
+    func testPlainDisplayTextKeepsSpacedAsterisks() {
+        // "* 3 *" has spaces inside the markers, so it is arithmetic, not italic markup.
+        XCTAssertEqual(Script.plainDisplayText(from: "5 * 3 * 2"), "5 * 3 * 2")
+        XCTAssertEqual(Script.plainDisplayText(from: "a *b* c"), "a b c")
+    }
+
+    func testEstimatedDurationFromWordCount() {
+        XCTAssertEqual(Script.estimatedDuration(wordCount: 300, wpm: 150), "2:00")
+        XCTAssertEqual(Script.estimatedDuration(wordCount: 10, wpm: 0), "10:00")
+    }
+
     func testFormatDuration() {
         XCTAssertEqual(Script.formatDuration(totalSeconds: 65), "1:05")
         XCTAssertEqual(Script.formatDuration(totalSeconds: 5), "0:05")
@@ -53,6 +64,13 @@ final class CueTokenTests: XCTestCase {
         let text = "[PAUSE] then [EMPHASIS] then »» FASTER then «« SLOWER"
         let matches = CueToken.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         XCTAssertEqual(matches.count, 4)
+    }
+
+    func testCueRegexDoesNotSpanLines() {
+        // A cue is one line. "»»" on one line and "FASTER" on the next are two words.
+        let text = "»»\n\nFASTER and »» FASTER"
+        let matches = CueToken.cueRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        XCTAssertEqual(matches.count, 1)
     }
 
     func testCueRegexIgnoresPlainBrackets() {

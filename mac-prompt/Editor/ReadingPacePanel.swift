@@ -8,6 +8,7 @@ import SwiftUI
 struct ReadingPacePanel: View {
     @Environment(\.theme) private var theme
     @Bindable var script: Script
+    let wordCount: Int
 
     /// The same range as Settings > Default scroll speed, so a new script's default
     /// pace is always a value this slider can show.
@@ -30,7 +31,7 @@ struct ReadingPacePanel: View {
                         .foregroundColor(theme.textFaint)
                 }
                 Spacer()
-                Text("~\(script.estimatedDuration)")
+                Text("~\(Script.estimatedDuration(wordCount: wordCount, wpm: script.targetWPM))")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(theme.textFaint)
             }
