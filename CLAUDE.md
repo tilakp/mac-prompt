@@ -80,8 +80,6 @@ A native adaptation of a violet/coral dark palette (originally specced with Goog
 
 ## Repo layout gotchas
 
-- `mac-prompt/` (the source directory) has its own **separate, unrelated nested `.git`** directory with a different commit history than the outer repo, both pointing at the same GitHub remote. It's a leftover, not a submodule. Running git commands from inside `mac-prompt/mac-prompt/` will operate on that inner repo instead of the outer one. Stay at the repo root (where this file lives) for git operations.
-
 - **Everything in `mac-prompt/mac-prompt/` is copied into the app bundle** (the synchronized root group adds every file as a resource), so keep only source and assets there: no zips, READMEs, licenses or workflow files.
 
 - **The app icon** is built from `mac-prompt/mac-prompt/Assets.xcassets/AppIcon.appiconset/` (`README.md` shows its `icon_128x128.png`). `mac-prompt/Assets.xcassets/` at the repo root is an unused duplicate.
