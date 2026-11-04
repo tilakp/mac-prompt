@@ -33,7 +33,7 @@ Packaging a release DMG (`release.sh`, requires `create-dmg`):
 ```sh
 ./release.sh
 ```
-This expects a built `mac-prompt.app` under `./release/` and produces `MacPrompt.dmg`. Keep that name: quietpixel.dev links to `releases/latest/download/MacPrompt.dmg`.
+It builds the Release app from the current checkout in a temporary folder (so no older build gets in), without Xcode's debugging entitlement `get-task-allow` (`CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO`), checks the signature, stages only the app, and writes `MacPrompt.dmg` to the repo root (git-ignored). It stops if `MacPrompt.dmg` already exists. Keep that name: quietpixel.dev links to `releases/latest/download/MacPrompt.dmg`. The old `./release/` folder is no longer used.
 
 ## Architecture
 
@@ -86,4 +86,4 @@ A native adaptation of a violet/coral dark palette (originally specced with Goog
 
 - **There is more than one built `.app` on a dev machine** and it's easy to end up testing/looking at a stale one: Xcode's DerivedData Debug and Release builds, plus (if someone's run `release.sh` or manually `ditto`'d a build into `/Applications` for daily use) a separate installed copy. `open -a mac-prompt`/Spotlight resolve to *whichever one LaunchServices last registered*, not necessarily the one you just built. This caused real confusion in this project's history (an old `/Applications/mac-prompt.app` from April 2025 kept showing the pre-rewrite icon and UI long after the source was rewritten). If icon/behavior changes don't seem to show up, check `ps aux | grep mac-prompt` for what's actually running and `mdfind "kMDItemCFBundleIdentifier == 'com.patelt.mac-prompt'"` for every copy on disk, not just the one you built.
 
-- **The GitHub Release is not wired to CI**: releases are versioned tags (`v1.1.0` onward), each with a `MacPrompt.dmg` asset that real users download (linked from `README.md`'s Getting Started section and from quietpixel.dev via `releases/latest/download/MacPrompt.dmg`). Nothing rebuilds or uploads a DMG automatically on push; for a new release, bump `MARKETING_VERSION`, rebuild Release configuration, regenerate the DMG (`release.sh`, requires `create-dmg`), sanity-check it by mounting it and inspecting the app inside, then `gh release create vX.Y.Z MacPrompt.dmg`. Keep the asset name exactly `MacPrompt.dmg`.
+- **The GitHub Release is not wired to CI**: releases are versioned tags (`v1.1.0` onward), each with a `MacPrompt.dmg` asset that real users download (linked from `README.md`'s Getting Started section and from quietpixel.dev via `releases/latest/download/MacPrompt.dmg`). Nothing rebuilds or uploads a DMG automatically on push; for a new release, bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (merged to `main`), run `./release.sh`, mount the DMG and open the app inside, then `gh release create vX.Y.Z MacPrompt.dmg --target main`. Keep the asset name exactly `MacPrompt.dmg`.

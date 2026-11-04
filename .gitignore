@@ -10,6 +10,7 @@ xcuserdata/
 # App bundles and packaging output should be built from source, not committed
 mac-prompt.app/
 release/
+MacPrompt.dmg
 
 # macOS
 .DS_Store
